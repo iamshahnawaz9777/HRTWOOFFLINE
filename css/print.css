@@ -1,0 +1,102 @@
+/* ==========================================================================
+   AeroGlass ERP Gate Pass Print Layout Stylings
+   ========================================================================== */
+
+@media print {
+  /* Hide overall screen framing */
+  body, html {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Hide sidebar navigation, global modal header close elements, settings, notifications */
+  .sidebar,
+  .workspace-header,
+  .btn,
+  .modal-header,
+  .toast-container,
+  #theme-toggle,
+  #logout-btn {
+    display: none !important;
+  }
+
+  /* Full Width Content Viewport */
+  .app-layout {
+    display: block !important;
+    height: auto !important;
+    width: 100% !important;
+  }
+
+  .workspace {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .view-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Format container of print block */
+  .modal-overlay {
+    position: static !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    display: block !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .modal-container {
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Force print view visibility */
+  .gp-print-view {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+
+  .gp-print-header {
+    border-bottom: 2px solid black !important;
+  }
+
+  .gp-print-table th {
+    background: #e2e8f0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Page breaks configuration */
+  .page-break {
+    page-break-before: always;
+  }
+}
