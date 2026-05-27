@@ -20,7 +20,7 @@ let currentFilters = { assignee: '', priority: '', search: '', projectSearch: ''
  */
 export async function renderProjects(container, routeParts = []) {
   const projects = await db.getAll('projects');
-  
+
   // Auto-select first project if none is active
   if (!selectedProjectId && projects.length > 0) {
     selectedProjectId = projects[0].id;
@@ -173,7 +173,7 @@ async function populateAssigneeFilters() {
   if (!filterEl) return;
 
   const employees = await db.getAll('employees');
-  
+
   // Clear other than default
   filterEl.innerHTML = '<option value="">All Assignees</option>';
   employees.forEach(emp => {
@@ -197,7 +197,7 @@ async function refreshKanbanBoard() {
   }
 
   const allTasks = await db.getAll('tasks');
-  
+
   // Filter by selected project and interactive filter fields
   let tasks = allTasks.filter(t => t.projectId === selectedProjectId);
 
@@ -275,7 +275,7 @@ async function refreshKanbanBoard() {
 function generateTaskCardHTML(t) {
   const completedSubtasks = t.subtasks.filter(s => s.completed).length;
   const totalSubtasks = t.subtasks.length;
-  
+
   return `
     <div class="task-card" draggable="true" data-id="${t.id}">
       <span class="task-priority-badge ${t.priority}">${t.priority}</span>
@@ -297,7 +297,7 @@ function generateTaskCardHTML(t) {
         
         <div class="task-assignees">
           ${t.assignees.map(as => `
-            <div class="assignee-avatar" title="${as}">${as.substring(0,2).toUpperCase()}</div>
+            <div class="assignee-avatar" title="${as}">${as.substring(0, 2).toUpperCase()}</div>
           `).join('')}
         </div>
       </div>
@@ -347,17 +347,17 @@ function bindDragAndDrop() {
     col.addEventListener('drop', async (e) => {
       e.preventDefault();
       col.classList.remove('drag-over');
-      
+
       if (!draggedCard) return;
 
       const taskId = draggedCard.getAttribute('data-id');
       const nextStatus = col.getAttribute('data-status');
-      
+
       const task = await db.get('tasks', taskId);
       if (task && task.status !== nextStatus) {
         const oldStatus = task.status;
         task.status = nextStatus;
-        
+
         task.activityLog.push({
           time: new Date().toISOString(),
           user: auth.getCurrentUser()?.username || 'System',
@@ -366,7 +366,7 @@ function bindDragAndDrop() {
 
         await db.put('tasks', task);
         await sync.queueOperation('tasks', 'update', task);
-        
+
         await refreshProjectRoster();
         await refreshKanbanBoard();
         app.showToast('Task Shifted', `"${task.name}" is now in ${nextStatus}.`, 'success');
@@ -445,14 +445,14 @@ function bindEventListeners(container) {
       const id = `proj-${Date.now()}`;
 
       const newProj = { id, name, description, status: 'Active', createdAt: new Date().toISOString() };
-      
+
       await db.put('projects', newProj);
       await sync.queueOperation('projects', 'insert', newProj);
-      
+
       selectedProjectId = id;
       app.closeModal();
       app.showToast('Project Created', `Initialized milestone project: "${name}"`, 'success');
-      
+
       renderProjects(container);
     });
   });
@@ -496,9 +496,17 @@ function bindEventListeners(container) {
         </div>
         <div class="input-group">
           <label>Assign to Team Member</label>
-          <select id="new-task-assignee" class="form-control-noicon" required>
-            ${assigneesHTML}
-          </select>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="new-task-assignee" class="form-control-noicon" style="flex-grow:1;" required>
+              ${assigneesHTML}
+            </select>
+            <button type="button" id="task-manual-toggle-btn" class="btn btn-secondary" style="padding:6px 10px; font-size:11px; white-space:nowrap;">
+              <i data-lucide="pencil" style="width:12px; height:12px;"></i> Manual
+            </button>
+          </div>
+          <div id="task-manual-assign-wrapper" style="display:none; margin-top:8px;">
+            <input type="text" id="new-task-manual-assignee" class="form-control-noicon" placeholder="Enter custom assignee name...">
+          </div>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create Kanban Task</button>
       </form>
@@ -506,13 +514,34 @@ function bindEventListeners(container) {
 
     app.openModal('Create Project Task', formHTML);
 
+    // Manual assignee toggle
+    document.getElementById('task-manual-toggle-btn')?.addEventListener('click', () => {
+      const wrapper = document.getElementById('task-manual-assign-wrapper');
+      const select = document.getElementById('new-task-assignee');
+      const manualInput = document.getElementById('new-task-manual-assignee');
+      if (wrapper.style.display === 'none') {
+        wrapper.style.display = 'block';
+        select.style.display = 'none';
+        select.required = false;
+      } else {
+        wrapper.style.display = 'none';
+        select.style.display = 'block';
+        select.required = true;
+        manualInput.value = '';
+      }
+    });
+
     document.getElementById('create-task-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('new-task-name').value;
       const description = document.getElementById('new-task-desc').value || '';
       const deadline = document.getElementById('new-task-deadline').value || '';
       const priority = document.getElementById('new-task-priority').value || 'medium';
-      const assigneeVal = document.getElementById('new-task-assignee').value;
+      // Check if manual entry is active
+      const isManual = document.getElementById('task-manual-assign-wrapper')?.style?.display === 'block';
+      const assigneeVal = isManual
+        ? document.getElementById('new-task-manual-assignee')?.value?.trim() || 'Unassigned'
+        : document.getElementById('new-task-assignee').value;
       const id = `task-${Date.now()}`;
 
       const newTask = {
@@ -535,7 +564,7 @@ function bindEventListeners(container) {
 
       app.closeModal();
       app.showToast('Task Created', `Added task "${name}" to To Do column.`, 'success');
-      
+
       await refreshKanbanBoard();
       await refreshProjectRoster();
     });
@@ -607,12 +636,12 @@ function openTaskDetailModal(task) {
   `;
 
   app.openModal('Task Verification Detail', modalBodyHTML, '580px');
-  
+
   // Render subtasks list loop
   const renderSubtasks = () => {
     const listEl = document.getElementById('modal-subtask-list');
     const counterEl = document.getElementById('modal-subtasks-count');
-    
+
     if (task.subtasks.length === 0) {
       listEl.innerHTML = '<p class="muted-text" style="font-size:12px;">No subtasks checklist configured for this task.</p>';
       counterEl.textContent = '0%';
@@ -636,7 +665,7 @@ function openTaskDetailModal(task) {
       chk.addEventListener('change', async (e) => {
         const idx = parseInt(chk.getAttribute('data-idx'));
         task.subtasks[idx].completed = e.target.checked;
-        
+
         task.activityLog.push({
           time: new Date().toISOString(),
           user: auth.getCurrentUser()?.username || 'User',
@@ -645,7 +674,7 @@ function openTaskDetailModal(task) {
 
         await db.put('tasks', task);
         await sync.queueOperation('tasks', 'update', task);
-        
+
         renderSubtasks();
         renderActivities();
         await refreshKanbanBoard();
@@ -671,13 +700,13 @@ function openTaskDetailModal(task) {
   // Bind Add checklist item
   const addSubtaskInput = document.getElementById('add-subtask-input');
   const addSubtaskBtn = document.getElementById('add-subtask-btn');
-  
+
   const triggerAddSubtask = async () => {
     const txt = addSubtaskInput.value.trim();
     if (!txt) return;
 
     task.subtasks.push({ text: txt, completed: false });
-    
+
     task.activityLog.push({
       time: new Date().toISOString(),
       user: auth.getCurrentUser()?.username || 'Admin',
@@ -731,10 +760,10 @@ function openTaskDetailModal(task) {
     if (confirmDelete) {
       await db.delete('tasks', task.id);
       await sync.queueOperation('tasks', 'delete', task.id);
-      
+
       app.closeModal();
       app.showToast('Task Deleted', `Successfully deleted task from Kanban board.`, 'success');
-      
+
       await refreshKanbanBoard();
       await refreshProjectRoster();
     }

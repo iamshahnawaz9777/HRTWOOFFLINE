@@ -124,11 +124,109 @@ export async function renderSettings(container) {
           </button>
         </div>
       </div>
+      <!-- Database Table Editor -->
+      <div class="glass-card" style="display:flex; flex-direction:column; gap:16px; grid-column: 1 / -1;">
+        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Database Table Explorer</h3>
+        <p class="muted-text" style="font-size:12px;">Browse and edit raw table data directly in an editable grid.</p>
+        
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-secondary table-select-btn active" data-table="inventory" style="padding:6px 14px; font-size:12px;">Inventory</button>
+          <button class="btn btn-secondary table-select-btn" data-table="employees" style="padding:6px 14px; font-size:12px;">Employees</button>
+          <button class="btn btn-secondary table-select-btn" data-table="tasks" style="padding:6px 14px; font-size:12px;">Tasks</button>
+          <button class="btn btn-secondary table-select-btn" data-table="gatepasses" style="padding:6px 14px; font-size:12px;">Gate Passes</button>
+          <button class="btn btn-secondary table-select-btn" data-table="transactions" style="padding:6px 14px; font-size:12px;">Transactions</button>
+          <button class="btn btn-secondary table-select-btn" data-table="projects" style="padding:6px 14px; font-size:12px;">Projects</button>
+        </div>
+        
+        <div id="db-table-editor-container" style="overflow:auto; max-height:450px; border:1px solid var(--glass-border); border-radius:var(--radius-md);">
+          <table class="custom-table" style="font-size:11px;" id="db-table-editor-table">
+            <thead id="db-table-head"></thead>
+            <tbody id="db-table-body"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   `;
 
   bindSettingsEvents(container);
+  bindTableEditorEvents(container);
   lucide.createIcons();
+}
+
+/* ==========================================================================
+   Database Table Editor
+   ========================================================================== */
+function bindTableEditorEvents(container) {
+  let currentTable = 'inventory';
+
+  const loadTableData = async (tableName) => {
+    const head = document.getElementById('db-table-head');
+    const body = document.getElementById('db-table-body');
+    if (!head || !body) return;
+
+    const data = await db.getAll(tableName);
+    if (data.length === 0) {
+      head.innerHTML = '';
+      body.innerHTML = '<tr><td class="text-center muted-text" style="padding:20px;">No records found in this table.</td></tr>';
+      return;
+    }
+
+    const keys = Object.keys(data[0]);
+    head.innerHTML = `<tr>${keys.map(k => `<th style="padding:8px; font-size:10px; white-space:nowrap;">${k}</th>`).join('')}</tr>`;
+
+    body.innerHTML = data.slice(0, 50).map((row, ri) => `
+      <tr>
+        ${keys.map(key => {
+      let val = row[key];
+      if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
+      if (val === undefined || val === null) val = '';
+      return `<td style="padding:4px 6px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">
+            <input type="text" class="form-control-noicon cell-edit" data-table="${tableName}" data-row-id="${row.id || ri}" data-key="${key}" value="${typeof val === 'string' ? val.replace(/"/g, '"') : val}" style="width:100%; padding:2px 4px; font-size:10px; background:transparent; border:none;" />
+          </td>`;
+    }).join('')}
+      </tr>
+    `).join('');
+
+    // Bind cell edits
+    body.querySelectorAll('.cell-edit').forEach(input => {
+      let timeout;
+      input.addEventListener('input', () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+          const tbl = input.getAttribute('data-table');
+          const rowId = input.getAttribute('data-row-id');
+          const key = input.getAttribute('data-key');
+          const newVal = input.value;
+
+          const allData = await db.getAll(tbl);
+          let record = allData.find(r => (r.id || r.username) === rowId);
+          if (!record) return;
+
+          // Try to parse numbers
+          record[key] = isNaN(newVal) ? newVal : Number(newVal);
+          await db.put(tbl, record);
+          await sync.queueOperation(tbl, 'update', record);
+        }, 600);
+      });
+    });
+  };
+
+  // Initial load
+  loadTableData('inventory');
+
+  // Tab switching
+  container.querySelectorAll('.table-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.table-select-btn').forEach(b => {
+        b.className = 'btn btn-secondary table-select-btn';
+        b.style.cssText = 'padding:6px 14px; font-size:12px;';
+      });
+      btn.className = 'btn btn-primary table-select-btn';
+      btn.style.cssText = 'padding:6px 14px; font-size:12px;';
+      currentTable = btn.getAttribute('data-table');
+      loadTableData(currentTable);
+    });
+  });
 }
 
 function bindSettingsEvents(container) {
@@ -152,7 +250,7 @@ function bindSettingsEvents(container) {
       app.showToast('Syncing Queue', 'Pushing queued offline transactions to Supabase backend...', 'info');
       await sync.syncQueue();
     }
-    
+
     await renderSettings(container);
   });
 
@@ -172,14 +270,14 @@ function bindSettingsEvents(container) {
     syncBtn.addEventListener('click', async () => {
       syncBtn.disabled = true;
       app.showToast('Manual Sync Started', 'Commencing queue reconcile...', 'info');
-      
+
       const success = await sync.syncQueue();
       if (success) {
         app.showToast('Sync Succeeded', 'Reconciled all offline queue records with Supabase backend.', 'success');
       } else {
         app.showToast('Sync Failure', 'Failed to synchronize queue with Supabase. Check connectivity and credentials.', 'danger');
       }
-      
+
       await renderSettings(container);
     });
   }
@@ -190,7 +288,7 @@ function bindSettingsEvents(container) {
     pullBtn.addEventListener('click', async () => {
       pullBtn.disabled = true;
       app.showToast('Cloud Pull Triggered', 'Refreshing local stores with cloud backend files...', 'info');
-      
+
       const res = await sync.pullAllFromCloud();
       if (res) {
         app.showToast('Pull Complete', 'Refreshed local records from cloud backend tables.', 'success');
@@ -212,10 +310,10 @@ function bindSettingsEvents(container) {
       }
       // Re-seed default databases
       await db.seed();
-      
+
       app.showToast('Database Reset Complete', 'Seeded initial sandbox data. Terminating session...', 'success');
       auth.logout();
-      
+
       setTimeout(() => {
         window.location.hash = '';
         location.reload();
@@ -226,7 +324,7 @@ function bindSettingsEvents(container) {
   // 6. CSV Export: Inventory Table Master (Acceptance Criteria 8!)
   document.getElementById('export-inv-csv-btn').addEventListener('click', async () => {
     const items = await db.getAll('inventory');
-    
+
     if (items.length === 0) {
       app.showToast('Export Blocked', 'No catalog records exist to back up.', 'warning');
       return;
@@ -245,11 +343,11 @@ function bindSettingsEvents(container) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
+
     link.setAttribute('href', url);
     link.setAttribute('download', `AeroGlass_Inventory_Backup_${new Date().toISOString().slice(0, 10)}.csv`);
     link.style.visibility = 'hidden';
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -261,7 +359,7 @@ function bindSettingsEvents(container) {
   document.getElementById('export-tx-csv-btn').addEventListener('click', async () => {
     const transactions = await db.getAll('transactions');
     const items = await db.getAll('inventory');
-    
+
     if (transactions.length === 0) {
       app.showToast('Export Blocked', 'No transaction ledgers logged yet.', 'warning');
       return;
@@ -273,18 +371,18 @@ function bindSettingsEvents(container) {
       const code = item ? item.code : 'UNKNOWN';
       const name = item ? item.name.replace(/"/g, '""') : 'Deleted Item';
       const purpose = tx.sourceOrPurpose.replace(/"/g, '""');
-      
+
       csv += `"${tx.id}","${code}","${name}","${tx.type}",${tx.quantity},"${purpose}","${tx.date}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
+
     link.setAttribute('href', url);
     link.setAttribute('download', `AeroGlass_Ledger_Transactions_Backup_${new Date().toISOString().slice(0, 10)}.csv`);
     link.style.visibility = 'hidden';
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

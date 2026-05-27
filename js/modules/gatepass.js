@@ -214,6 +214,9 @@ async function renderPassDetails() {
               <i data-lucide="folder-lock"></i><span>Close Pass</span>
             </button>
           ` : ''}
+          <button id="gp-delete-btn" class="btn btn-danger" style="padding:8px 14px; font-size:13px;">
+            <i data-lucide="trash-2"></i><span>Delete</span>
+          </button>
         </div>
       </div>
 
@@ -276,15 +279,15 @@ async function renderPassDetails() {
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:16px;">
           <div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">Total Amount</div>
-            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading);">₹${Number(storedTotal).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading);">₹${Number(storedTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">Amount Paid</div>
-            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading); color:var(--success);">₹${Number(amountPaid).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading); color:var(--success);">₹${Number(amountPaid).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">Balance Due</div>
-            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading); color:${balance > 0 ? 'var(--warning)' : 'var(--success)'};">₹${Number(balance).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+            <div style="font-size:20px; font-weight:700; font-family:var(--font-heading); color:${balance > 0 ? 'var(--warning)' : 'var(--success)'};">₹${Number(balance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:3px;">Payment Mode</div>
@@ -303,10 +306,10 @@ async function renderPassDetails() {
               <label>Select Item</label>
               <select id="return-item-select" class="form-control-noicon">
                 ${items.map(item => {
-                  const retInfo = gp.returns?.find(r => r.code === item.code);
-                  const maxReturn = item.quantity - (retInfo ? retInfo.returnedQty : 0);
-                  return maxReturn > 0 ? `<option value="${item.code}">${item.code} – ${item.name} (max: ${maxReturn})</option>` : '';
-                }).join('')}
+    const retInfo = gp.returns?.find(r => r.code === item.code);
+    const maxReturn = item.quantity - (retInfo ? retInfo.returnedQty : 0);
+    return maxReturn > 0 ? `<option value="${item.code}">${item.code} – ${item.name} (max: ${maxReturn})</option>` : '';
+  }).join('')}
               </select>
             </div>
             <div class="input-group" style="margin-bottom:0; width:110px;">
@@ -1031,17 +1034,17 @@ function bindDetailsActions(gp) {
               `).join('')}
               <tr style="border-top:2px solid #000; font-weight:700;">
                 <td colspan="4" style="text-align:right; padding-right:8px;">TOTAL AMOUNT:</td>
-                <td style="text-align:right;">₹${Number(total).toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
+                <td style="text-align:right;">₹${Number(total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td colspan="2"></td>
               </tr>
               <tr style="font-weight:600; color:#444;">
                 <td colspan="4" style="text-align:right; padding-right:8px;">AMOUNT PAID:</td>
-                <td style="text-align:right;">₹${Number(paid).toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
+                <td style="text-align:right;">₹${Number(paid).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td colspan="2" style="font-size:11px;">${gp.pricing?.paymentMode || '—'}</td>
               </tr>
               <tr style="font-weight:700; color:${(total - paid) > 0 ? '#d97706' : '#059669'};">
                 <td colspan="4" style="text-align:right; padding-right:8px;">BALANCE DUE:</td>
-                <td style="text-align:right;">₹${Number(total - paid).toLocaleString('en-IN', {minimumFractionDigits:2})}</td>
+                <td style="text-align:right;">₹${Number(total - paid).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td colspan="2"></td>
               </tr>
             </tbody>
@@ -1079,7 +1082,17 @@ function bindDetailsActions(gp) {
     await renderGatePass(document.getElementById('view-content'));
   });
 
-  // 4. Log Material Return
+  // 4. Delete Gate Pass
+  document.getElementById('gp-delete-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Are you sure you want to delete gate pass "${gp.gatePassNo}"? This cannot be undone.`)) return;
+    await db.delete('gatepasses', gp.id);
+    await sync.queueOperation('gatepasses', 'delete', gp.id);
+    app.showToast('Gate Pass Deleted', `"${gp.gatePassNo}" has been removed.`, 'info');
+    selectedGatePassId = null;
+    await renderGatePass(document.getElementById('view-content'));
+  });
+
+  // 5. Log Material Return
   const commitReturnBtn = document.getElementById('commit-return-btn');
   if (commitReturnBtn) {
     commitReturnBtn.addEventListener('click', async () => {

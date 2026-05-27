@@ -123,10 +123,15 @@ async function renderDirectoryTab(container) {
           <input type="text" id="emp-search" placeholder="Search by name, department..." class="form-control" style="padding-top:8px; padding-bottom:8px;">
         </div>
         
-        <button id="add-employee-btn" class="btn btn-primary" style="padding: 8px 16px;">
-          <i data-lucide="user-plus"></i>
-          <span>Add Employee</span>
-        </button>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="add-employee-btn" class="btn btn-primary" style="padding: 8px 16px;">
+            <i data-lucide="user-plus"></i>
+            <span>Add Employee</span>
+          </button>
+          <button id="bulk-delete-employees-btn" class="btn btn-danger" style="padding:8px 12px; font-size:12px;">
+            <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+          </button>
+        </div>
       </div>
 
       <div class="table-responsive">
@@ -243,22 +248,34 @@ async function renderDirectoryTab(container) {
       const id = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const newEmp = { id, name, role, department, contact, joiningDate, documents: [], leaveBalance: 15, salary };
-      
+
       await db.put('employees', newEmp);
       await sync.queueOperation('employees', 'insert', newEmp);
 
       // Create linked user login automatically
       const userLower = name.split(' ')[0].toLowerCase() + Math.floor(10 + Math.random() * 90);
       const newUser = { username: userLower, password: 'user123', role, status: 'Active' };
-      
+
       await db.put('users', newUser);
       await sync.queueOperation('users', 'insert', newUser);
 
       app.closeModal();
       app.showToast('Employee Added', `Created profile for ${name}. Automatically generated demo system account: "${userLower}" (password: "user123")`, 'success', 8000);
-      
+
       await renderActiveHRTab();
     });
+  });
+
+  // Bind Bulk Delete Employee Button
+  document.getElementById('bulk-delete-employees-btn')?.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to delete ALL employee records? This action cannot be undone.')) return;
+    const emps = await db.getAll('employees');
+    for (const emp of emps) {
+      await db.delete('employees', emp.id);
+      await sync.queueOperation('employees', 'delete', emp.id);
+    }
+    app.showToast('Employees Deleted', `All ${emps.length} employee records have been removed.`, 'info');
+    await renderActiveHRTab();
   });
 }
 
@@ -278,7 +295,7 @@ async function openEmployeeProfileModal(emp) {
       <!-- Profile Card Summary -->
       <div style="display:flex; align-items:center; gap:20px;">
         <div class="profile-avatar-large" style="margin-bottom:0; width:70px; height:70px; font-size:24px;">
-          ${emp.name.substring(0,2).toUpperCase()}
+          ${emp.name.substring(0, 2).toUpperCase()}
         </div>
         <div>
           <h2 style="font-size:18px; font-family:var(--font-heading); font-weight:800;">${emp.name}</h2>
@@ -399,10 +416,10 @@ async function openEmployeeProfileModal(emp) {
           if (e.target.files.length > 0) {
             const fileName = e.target.files[0].name;
             emp.documents.push({ name: fileName });
-            
+
             await db.put('employees', emp);
             await sync.queueOperation('employees', 'update', emp);
-            
+
             app.showToast('Document Uploaded', `Successfully uploaded simulated document file: ${fileName}`, 'success');
             activeProfileTab = 'documents';
             updateProfileTabRender();
@@ -489,8 +506,8 @@ async function renderAttendanceTab(container) {
             </thead>
             <tbody id="attendance-list-body">
               ${employees.map(emp => {
-                const clock = todayAttendance.find(a => a.employeeId === emp.id);
-                return `
+    const clock = todayAttendance.find(a => a.employeeId === emp.id);
+    return `
                   <tr>
                     <td><strong>${emp.name}</strong> <span class="muted-text" style="font-size:11px; display:block;"><code>${emp.id}</code></span></td>
                     <td>${clock ? clock.checkIn : '<span class="muted-text">-</span>'}</td>
@@ -504,7 +521,7 @@ async function renderAttendanceTab(container) {
                     </td>
                   </tr>
                 `;
-              }).join('')}
+  }).join('')}
             </tbody>
           </table>
         </div>
@@ -569,7 +586,7 @@ async function renderAttendanceTab(container) {
     }
 
     existing.checkOut = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    
+
     await db.put('attendance', existing);
     await sync.queueOperation('attendance', 'update', existing);
 
@@ -652,8 +669,8 @@ async function renderLeavesTab(container) {
               </thead>
               <tbody id="leaves-pending-body">
                 ${pendingLeaves.length > 0 ? pendingLeaves.map(lv => {
-                  const emp = employees.find(e => e.id === lv.employeeId);
-                  return `
+    const emp = employees.find(e => e.id === lv.employeeId);
+    return `
                     <tr>
                       <td><strong>${emp ? emp.name : lv.employeeId}</strong> <span class="muted-text" style="font-size:11px; display:block;">Balance: ${emp ? emp.leaveBalance : 0} days</span></td>
                       <td><strong>${lv.type}</strong><span style="display:block; font-size:11px;" class="muted-text">"${lv.reason}"</span></td>
@@ -664,7 +681,7 @@ async function renderLeavesTab(container) {
                       </td>
                     </tr>
                   `;
-                }).join('') : '<tr><td colspan="4" class="text-center muted-text" style="padding:16px 0;">No pending requests in queue.</td></tr>'}
+  }).join('') : '<tr><td colspan="4" class="text-center muted-text" style="padding:16px 0;">No pending requests in queue.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -686,8 +703,8 @@ async function renderLeavesTab(container) {
               </thead>
               <tbody id="leaves-history-body">
                 ${pastLeaves.length > 0 ? pastLeaves.map(lv => {
-                  const emp = employees.find(e => e.id === lv.employeeId);
-                  return `
+    const emp = employees.find(e => e.id === lv.employeeId);
+    return `
                     <tr>
                       <td><strong>${emp ? emp.name : lv.employeeId}</strong></td>
                       <td>${lv.type}</td>
@@ -696,7 +713,7 @@ async function renderLeavesTab(container) {
                       <td><span class="badge ${lv.status === 'Approved' ? 'success' : 'danger'}">${lv.status}</span></td>
                     </tr>
                   `;
-                }).join('') : '<tr><td colspan="5" class="text-center muted-text">No archived ledger entries.</td></tr>'}
+  }).join('') : '<tr><td colspan="5" class="text-center muted-text">No archived ledger entries.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -711,7 +728,7 @@ async function renderLeavesTab(container) {
     const q = e.target.value.toLowerCase();
     document.querySelectorAll('#leaves-pending-body tr, #leaves-history-body tr').forEach(row => {
       // Don't hide the "No pending requests" or "No archived entries" rows
-      if (row.querySelector('td')?.colSpan > 1) return; 
+      if (row.querySelector('td')?.colSpan > 1) return;
 
       const txt = row.innerText.toLowerCase();
       if (txt.includes(q)) {
@@ -785,7 +802,7 @@ async function renderLeavesTab(container) {
     btn.addEventListener('click', async () => {
       const lvId = btn.getAttribute('data-id');
       const lv = await db.get('leaves', lvId);
-      
+
       lv.status = 'Rejected';
       lv.approvedBy = auth.getCurrentUser()?.username || 'HR Manager';
       await db.put('leaves', lv);
@@ -802,7 +819,7 @@ async function renderLeavesTab(container) {
    ========================================================================== */
 async function renderPayrollTab(container) {
   const employees = await db.getAll('employees');
-  
+
   // Calculate average payroll stats
   const departments = {};
   employees.forEach(emp => {

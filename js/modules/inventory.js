@@ -19,11 +19,26 @@ let invSearchQuery = '';
 export async function renderInventory(container, routeParts = []) {
   const items = await db.getAll('inventory');
   const transactions = await db.getAll('transactions');
-  const lowStockItems = items.filter(item => item.currentStock <= item.minStock);
   const TODAY_STR = new Date().toISOString().split('T')[0];
 
+  // Add import/export tools bar at top
   container.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:24px;">
+      <!-- Bulk Import/Export Tools -->
+      <div class="glass-card" style="display:flex; align-items:center; gap:12px; padding:12px 20px; flex-wrap:wrap;">
+        <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">📂 Data Tools:</span>
+        <input type="file" id="inv-file-upload" accept=".csv, .xlsx" style="font-size:12px; max-width:180px;" />
+        <button id="inv-import-btn" class="btn btn-primary" style="padding:6px 12px; font-size:11px;">
+          <i data-lucide="upload" style="width:14px; height:14px;"></i> Import
+        </button>
+        <button id="inv-export-csv-btn" class="btn btn-secondary" style="padding:6px 12px; font-size:11px;">
+          <i data-lucide="file-spreadsheet" style="width:14px; height:14px;"></i> Export CSV
+        </button>
+        <button id="inv-export-xlsx-btn" class="btn btn-accent" style="padding:6px 12px; font-size:11px;">
+          <i data-lucide="file-text" style="width:14px; height:14px;"></i> Export Excel
+        </button>
+      </div>
+
       <!-- Summary Stat Cards -->
       <div class="inventory-summary-cards">
         <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center;">
@@ -37,15 +52,6 @@ export async function renderInventory(container, routeParts = []) {
 
         <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <span class="muted-text" style="font-size:11px; text-transform:uppercase;">Low Stock Alerts</span>
-            <h2 style="font-family:var(--font-heading); font-size:26px; font-weight:800; margin:4px 0;" class="${lowStockItems.length > 0 ? 'danger-text' : 'success-text'}">${lowStockItems.length}</h2>
-            <p style="font-size:11px; color:var(--text-secondary);">Items below threshold</p>
-          </div>
-          <i data-lucide="alert-triangle" style="width:40px; height:40px; color:${lowStockItems.length > 0 ? 'var(--danger)' : 'var(--success)'};"></i>
-        </div>
-
-        <div class="glass-card" style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
             <span class="muted-text" style="font-size:11px; text-transform:uppercase;">Transactions</span>
             <h2 style="font-family:var(--font-heading); font-size:26px; font-weight:800; margin:4px 0;">${transactions.length}</h2>
             <p style="font-size:11px; color:var(--text-secondary);">Total ledger logs</p>
@@ -53,14 +59,6 @@ export async function renderInventory(container, routeParts = []) {
           <i data-lucide="shuffle" style="width:40px; height:40px; color:var(--accent-color);"></i>
         </div>
       </div>
-
-      <!-- Low stock banner -->
-      ${lowStockItems.length > 0 ? `
-        <div class="alert-bar" style="margin-bottom:0;">
-          <i data-lucide="bell" class="spinning"></i>
-          <div><strong>Reorder Alert:</strong> Below minimum safety levels: <code>${lowStockItems.map(i => i.code).join(', ')}</code></div>
-        </div>
-      ` : ''}
 
       <!-- Main Grid: Table + Transaction Form -->
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
@@ -101,7 +99,7 @@ export async function renderInventory(container, routeParts = []) {
                   <th>Item Name</th>
                   <th>Category</th>
                   <th>Stock</th>
-                  <th>Min Level</th>
+                  <th>Last Updated</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -165,6 +163,7 @@ export async function renderInventory(container, routeParts = []) {
 
   try { await populateItemsTable(); } catch (e) { console.error('Inventory table error:', e); }
   bindInventoryEvents(container);
+  bindImportExportEvents(container);
   lucide.createIcons();
 }
 
@@ -177,6 +176,7 @@ async function populateItemsTable() {
   if (!tbody) return;
 
   const items = await db.getAll('inventory');
+  const transactions = await db.getAll('transactions');
   let filtered = items;
 
   // Category filter
@@ -203,7 +203,9 @@ async function populateItemsTable() {
   if (noResults) noResults.classList.add('hidden');
 
   tbody.innerHTML = filtered.map(i => {
-    const isLow = i.currentStock <= i.minStock;
+    const itemTx = transactions.filter(t => t.itemId === i.id).sort((a, b) => b.date.localeCompare(a.date));
+    const lastLogDate = itemTx.length > 0 ? itemTx[0].date : (i.createdDate || 'N/A');
+    
     return `
       <tr>
         <td><code>${i.code}</code></td>
@@ -213,12 +215,11 @@ async function populateItemsTable() {
         </td>
         <td><span class="badge primary">${i.category}</span></td>
         <td>
-          <strong class="${isLow ? 'danger-text' : 'success-text'}" style="font-size:15px;">${i.currentStock}</strong>
+          <strong class="primary-text" style="font-size:15px;">${i.currentStock}</strong>
           <span style="font-size:10px;" class="muted-text"> ${i.unit}</span>
-          ${isLow ? '<span class="badge danger" style="font-size:8px; display:block; margin-top:2px;">LOW</span>' : ''}
         </td>
         <td>
-          <input type="number" class="form-control-noicon min-stock-input" data-id="${i.id}" value="${i.minStock}" style="width:70px; padding:3px 6px; font-size:12px; text-align:center;" min="0">
+          ${lastLogDate}
         </td>
         <td>
           <div style="display:flex; gap:6px;">
@@ -312,10 +313,6 @@ function openRegisterItemModal(container) {
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
         <div class="input-group" style="margin-bottom:0;">
-          <label>Min Safety Stock <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-          <input type="number" id="new-item-min" class="form-control-noicon" min="0" placeholder="e.g. 20">
-        </div>
-        <div class="input-group" style="margin-bottom:0;">
           <label>Opening Stock Balance <span class="muted-text" style="font-size:10px;">(optional)</span></label>
           <input type="number" id="new-item-init" class="form-control-noicon" min="0" placeholder="e.g. 50">
         </div>
@@ -348,9 +345,9 @@ function openRegisterItemModal(container) {
     const code = rawCode || `ITM-${Date.now()}`;
     const category = document.getElementById('new-item-category')?.value || 'others';
     const unit = document.getElementById('new-item-unit')?.value?.trim() || 'Pcs';
-    const minStock = parseInt(document.getElementById('new-item-min')?.value || '0') || 0;
     const currentStock = parseInt(document.getElementById('new-item-init')?.value || '0') || 0;
     const description = document.getElementById('new-item-desc')?.value?.trim() || '';
+    const TODAY_STR = new Date().toISOString().split('T')[0];
 
     // Duplicate code check
     const allItems = await db.getAll('inventory');
@@ -360,7 +357,7 @@ function openRegisterItemModal(container) {
     }
 
     const id = `inv-${Date.now()}`;
-    const newItem = { id, code, name, category, unit, minStock, currentStock, description };
+    const newItem = { id, code, name, category, unit, currentStock, description, createdDate: TODAY_STR };
     await db.put('inventory', newItem);
     await sync.queueOperation('inventory', 'insert', newItem);
 
@@ -419,10 +416,6 @@ async function openEditItemModal(itemId, container) {
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
         <div class="input-group" style="margin-bottom:0;">
-          <label>Min Safety Stock</label>
-          <input type="number" id="edit-item-min" class="form-control-noicon" min="0" value="${item.minStock || 0}">
-        </div>
-        <div class="input-group" style="margin-bottom:0;">
           <label>Current Stock <span class="muted-text" style="font-size:10px;">(direct override)</span></label>
           <input type="number" id="edit-item-stock" class="form-control-noicon" min="0" value="${item.currentStock || 0}">
         </div>
@@ -462,7 +455,6 @@ async function openEditItemModal(itemId, container) {
       name,
       category: document.getElementById('edit-item-category')?.value || item.category,
       unit: document.getElementById('edit-item-unit')?.value?.trim() || item.unit,
-      minStock: parseInt(document.getElementById('edit-item-min')?.value || '0') || 0,
       currentStock: parseInt(document.getElementById('edit-item-stock')?.value || '0') || 0,
       description: document.getElementById('edit-item-desc')?.value?.trim() || ''
     };
@@ -534,27 +526,24 @@ async function handleTransactionSubmit(container) {
 /* ==========================================================================
    Table Row Button Bindings
    ========================================================================== */
-function bindTableButtons() {
-  // Min stock inline edit
-  document.querySelectorAll('.min-stock-input').forEach(input => {
-    input.addEventListener('change', async (e) => {
-      const itemId = input.getAttribute('data-id');
-      const val = parseInt(e.target.value);
-      if (val < 0) { app.showToast('Invalid Value', 'Min stock cannot be negative.', 'danger'); return; }
-      const item = await db.get('inventory', itemId);
-      if (item) {
-        const old = item.minStock;
-        item.minStock = val;
-        await db.put('inventory', item);
-        await sync.queueOperation('inventory', 'update', item);
-        app.showToast('Limit Updated', `${item.code} minimum changed from ${old} to ${val}.`, 'success');
-        await populateItemsTable();
-        bindTableButtons();
-        lucide.createIcons();
-      }
-    });
+/* ==========================================================================
+   Recalculate Stock Helper
+   ========================================================================== */
+async function recalculateStock(itemId) {
+  const item = await db.get('inventory', itemId);
+  const allTx = await db.getAll('transactions');
+  const itemTx = allTx.filter(t => t.itemId === itemId);
+  let calculated = 0;
+  itemTx.forEach(t => {
+     calculated += (t.type === 'inward' ? t.quantity : -t.quantity);
   });
+  item.currentStock = calculated;
+  await db.put('inventory', item);
+  await sync.queueOperation('inventory', 'update', item);
+  return calculated;
+}
 
+function bindTableButtons() {
   // Edit button → opens Edit modal
   document.querySelectorAll('.edit-item-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -570,7 +559,7 @@ function bindTableButtons() {
       const itemId = btn.getAttribute('data-id');
       const item = await db.get('inventory', itemId);
       const allTx = await db.getAll('transactions');
-      const itemTx = allTx.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+      let itemTx = allTx.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
 
       const modalHTML = `
         <div style="display:flex; flex-direction:column; gap:14px;">
@@ -578,8 +567,18 @@ function bindTableButtons() {
           <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:13px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px;">
             <span><strong>Code:</strong> <code>${item.code}</code></span>
             <span><strong>Unit:</strong> ${item.unit}</span>
-            <span><strong>Min Stock:</strong> ${item.minStock}</span>
-            <span><strong>Current Stock:</strong> <span class="${item.currentStock <= item.minStock ? 'danger-text' : 'success-text'} font-bold">${item.currentStock} ${item.unit}</span></span>
+            <span><strong>Current Stock:</strong> <span class="primary-text font-bold" id="modal-current-stock">${item.currentStock} ${item.unit}</span></span>
+          </div>
+
+          <!-- Log Management Tools -->
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--glass-border); padding-bottom:10px;">
+             <div>
+                <label style="font-size:11px; display:block; margin-bottom:4px;" class="muted-text">Import Log CSV</label>
+                <input type="file" id="modal-log-import" accept=".csv" style="font-size:11px; max-width:180px;">
+             </div>
+             <button type="button" id="modal-log-export-btn" class="btn btn-secondary" style="padding:4px 10px; font-size:11px; margin-top:16px;">
+               <i data-lucide="download"></i> Download Logs
+             </button>
           </div>
 
           <!-- Search transactions -->
@@ -599,7 +598,6 @@ function bindTableButtons() {
                 </tr>
               </thead>
               <tbody id="tx-log-body">
-                ${renderTxRows(itemTx)}
               </tbody>
             </table>
           </div>
@@ -607,6 +605,35 @@ function bindTableButtons() {
       `;
 
       app.openModal(`Transaction Logs — ${item.name}`, modalHTML, '650px');
+
+      const renderModalLogs = (txData) => {
+        const body = document.getElementById('tx-log-body');
+        if (body) {
+           body.innerHTML = renderTxRows(txData);
+           body.querySelectorAll('.log-edit').forEach(input => {
+             input.addEventListener('change', async (e) => {
+                const txId = e.target.getAttribute('data-id');
+                const field = e.target.getAttribute('data-field');
+                let val = e.target.value;
+                if (field === 'quantity') val = parseInt(val) || 0;
+
+                const tx = await db.get('transactions', txId);
+                if (tx) {
+                   tx[field] = val;
+                   await db.put('transactions', tx);
+                   await sync.queueOperation('transactions', 'update', tx);
+                   
+                   const newStock = await recalculateStock(itemId);
+                   const ms = document.getElementById('modal-current-stock');
+                   if (ms) ms.innerText = newStock + ' ' + item.unit;
+                   populateItemsTable();
+                }
+             });
+           });
+        }
+      };
+
+      renderModalLogs(itemTx);
 
       // Bind log search
       document.getElementById('tx-log-search')?.addEventListener('input', (e) => {
@@ -616,8 +643,59 @@ function bindTableButtons() {
           (t.type || '').includes(q) ||
           (t.sourceOrPurpose || '').toLowerCase().includes(q)
         );
-        const body = document.getElementById('tx-log-body');
-        if (body) body.innerHTML = renderTxRows(filteredTx);
+        renderModalLogs(filteredTx);
+      });
+
+      // Bind import
+      document.getElementById('modal-log-import')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        Papa.parse(file, {
+          header: true,
+          dynamicTyping: true,
+          complete: async (results) => {
+            let count = 0;
+            for (const row of results.data) {
+              if (!row.date || !row.quantity) continue;
+              const txId = `tx-${Date.now()}-${count}`;
+              const type = (row.type || row.Type || 'inward').toLowerCase();
+              const quantity = parseInt(row.quantity || row.Quantity) || 0;
+              const sourceOrPurpose = row.description || row.sourceOrPurpose || row.Description || '';
+              let date = row.date || row.Date || new Date().toISOString().split('T')[0];
+              if (date instanceof Date) date = date.toISOString().split('T')[0];
+              
+              const newTx = { id: txId, itemId, type, quantity, sourceOrPurpose, date };
+              await db.put('transactions', newTx);
+              await sync.queueOperation('transactions', 'insert', newTx);
+              count++;
+            }
+            if (count > 0) {
+               const newStock = await recalculateStock(itemId);
+               const ms = document.getElementById('modal-current-stock');
+               if (ms) ms.innerText = newStock + ' ' + item.unit;
+               app.showToast('Logs Imported', `Imported ${count} records.`, 'success');
+               
+               const allTxRef = await db.getAll('transactions');
+               itemTx = allTxRef.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+               renderModalLogs(itemTx);
+               populateItemsTable();
+            }
+            e.target.value = '';
+          }
+        });
+      });
+
+      // Bind export
+      document.getElementById('modal-log-export-btn')?.addEventListener('click', () => {
+         const csv = Papa.unparse(itemTx.map(t => ({
+           date: t.date, type: t.type, quantity: t.quantity, description: t.sourceOrPurpose
+         })));
+         const blob = new Blob([csv], { type: 'text/csv' });
+         const url = URL.createObjectURL(blob);
+         const link = document.createElement('a');
+         link.href = url;
+         link.download = `${item.name}_logs.csv`;
+         link.click();
       });
     });
   });
@@ -627,10 +705,137 @@ function renderTxRows(txList) {
   if (txList.length === 0) return `<tr><td colspan="4" class="text-center muted-text" style="padding:20px;">No transactions found.</td></tr>`;
   return txList.map(t => `
     <tr>
-      <td><code>${t.date}</code></td>
-      <td><span class="badge ${t.type === 'inward' ? 'success' : 'primary'}">${t.type}</span></td>
-      <td style="text-align:center;"><strong>${t.quantity}</strong></td>
-      <td>${t.sourceOrPurpose}</td>
+      <td><input type="date" class="form-control-noicon log-edit" data-id="${t.id}" data-field="date" value="${t.date}" style="padding:2px; font-size:11px; width:110px;"></td>
+      <td>
+        <select class="form-control-noicon log-edit" data-id="${t.id}" data-field="type" style="padding:2px; font-size:11px;">
+          <option value="inward" ${t.type === 'inward' ? 'selected' : ''}>Inward</option>
+          <option value="outward" ${t.type === 'outward' ? 'selected' : ''}>Outward</option>
+        </select>
+      </td>
+      <td style="text-align:center;"><input type="number" class="form-control-noicon log-edit" data-id="${t.id}" data-field="quantity" value="${t.quantity}" style="padding:2px; font-size:11px; width:60px; text-align:center;" min="1"></td>
+      <td><input type="text" class="form-control-noicon log-edit" data-id="${t.id}" data-field="sourceOrPurpose" value="${t.sourceOrPurpose}" style="padding:2px; font-size:11px; width:100%;"></td>
     </tr>
   `).join('');
+}
+
+/* ==========================================================================
+   Bulk Import / Export (CSV & Excel) Event Bindings
+   ========================================================================== */
+function bindImportExportEvents(container) {
+  // --- IMPORT: Parse uploaded CSV or Excel file ---
+  document.getElementById('inv-import-btn')?.addEventListener('click', async () => {
+    const fileInput = document.getElementById('inv-file-upload');
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      app.showToast('No File Selected', 'Please select a .csv or .xlsx file first.', 'warning');
+      return;
+    }
+
+    const extension = file.name.split('.').pop().toLowerCase();
+    let importedData = [];
+
+    try {
+      if (extension === 'csv') {
+        const text = await file.text();
+        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+        importedData = parsed.data;
+      } else if (extension === 'xlsx') {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        importedData = XLSX.utils.sheet_to_json(ws);
+      } else {
+        app.showToast('Invalid Format', 'Only .csv and .xlsx files are supported.', 'danger');
+        return;
+      }
+    } catch (parseErr) {
+      console.error('File parse error:', parseErr);
+      app.showToast('Parse Error', 'Failed to read the file. Check the format and try again.', 'danger');
+      return;
+    }
+
+    if (!importedData || importedData.length === 0) {
+      app.showToast('Empty Data', 'The file contains no records to import.', 'warning');
+      return;
+    }
+
+    // Map generic column names to our schema
+    let imported = 0;
+    const existingItems = await db.getAll('inventory');
+
+    for (const row of importedData) {
+      const name = row.name || row.Name || row.ITEM_NAME || row['Item Name'] || '';
+      if (!name) continue;
+
+      const code = (row.code || row.Code || row.ITEM_CODE || row['Item Code'] || '').toString().trim().toUpperCase() || `ITM-${Date.now()}-${imported}`;
+      // Skip duplicate codes
+      if (existingItems.some(i => i.code === code) || (await db.getAll('inventory')).some(i => i.code === code)) continue;
+
+      const category = row.category || row.Category || row.CATEGORY || row['Category'] || 'others';
+      const unit = row.unit || row.Unit || row.UNIT || row['Unit'] || 'Pcs';
+      const currentStock = parseInt(row.currentStock || row.CurrentStock || row.CURRENT_STOCK || row['Current Stock'] || row.stock || row.Stock || '0') || 0;
+      const description = row.description || row.Description || row.DESCRIPTION || row['Description'] || '';
+
+      const id = `inv-${Date.now()}-${imported}`;
+      const TODAY_STR = new Date().toISOString().split('T')[0];
+      const newItem = { id, code, name, category, unit, currentStock, description, createdDate: TODAY_STR };
+      await db.put('inventory', newItem);
+      await sync.queueOperation('inventory', 'insert', newItem);
+      imported++;
+    }
+
+    fileInput.value = '';
+    app.showToast('Import Complete', `Successfully imported ${imported} new items from ${file.name}.`, 'success');
+    renderInventory(container);
+  });
+
+  // --- EXPORT CSV ---
+  document.getElementById('inv-export-csv-btn')?.addEventListener('click', async () => {
+    const items = await db.getAll('inventory');
+    if (items.length === 0) {
+      app.showToast('No Data', 'No inventory items to export.', 'warning');
+      return;
+    }
+    const csv = Papa.unparse(items.map(i => ({
+      code: i.code,
+      name: i.name,
+      category: i.category,
+      unit: i.unit,
+      currentStock: i.currentStock,
+      createdDate: i.createdDate,
+      description: i.description
+    })));
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inventory_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    app.showToast('Export Complete', `Downloaded ${items.length} items as CSV.`, 'success');
+  });
+
+  // --- EXPORT Excel ---
+  document.getElementById('inv-export-xlsx-btn')?.addEventListener('click', async () => {
+    const items = await db.getAll('inventory');
+    if (items.length === 0) {
+      app.showToast('No Data', 'No inventory items to export.', 'warning');
+      return;
+    }
+    const data = items.map(i => ({
+      Code: i.code,
+      Name: i.name,
+      Category: i.category,
+      Unit: i.unit,
+      'Current Stock': i.currentStock,
+      'Created Date': i.createdDate,
+      Description: i.description
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+    XLSX.writeFile(wb, `inventory_export_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    app.showToast('Export Complete', `Downloaded ${items.length} items as Excel.`, 'success');
+  });
 }
