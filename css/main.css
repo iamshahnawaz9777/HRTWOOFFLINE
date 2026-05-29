@@ -1830,3 +1830,109 @@ select.form-control {
   background: var(--glass-border);
   border-radius: 2px;
 }
+
+/* ==========================================================================
+   ANTIGRAVITY LIGHT THEMING ENGINE OVERHAUL (REF: watermarked_img_1843260074029785376.png)
+   ========================================================================== */
+
+html[data-theme="light"] {
+  /* Core Palette Overrides */
+  --bg-gradient: linear-gradient(135deg, #F4F5F7 0%, #E2E8F0 100%);
+  --bg-color: #F4F5F7;
+  --panel-bg: #FFFFFF;
+  --glass-bg: rgba(15, 23, 42, 0.02);
+  --glass-border: #E5E7EB;
+  --glass-hover: rgba(15, 23, 42, 0.04);
+
+  --primary-color: #2563eb;
+  --primary-glow: #E2EAF8;
+  --accent-color: #7c3aed;
+  --accent-glow: rgba(124, 58, 237, 0.15);
+
+  --text-primary: #1A1A1A;
+  --text-secondary: #5A6A85;
+  --text-muted: #94a3b8;
+
+  --success: #059669;
+  --success-glow: rgba(5, 150, 105, 0.15);
+  --warning: #d97706;
+  --warning-glow: rgba(217, 119, 6, 0.15);
+  --danger: #dc2626;
+  --danger-glow: rgba(220, 38, 38, 0.15);
+  --info: #0891b2;
+  --info-glow: rgba(8, 145, 178, 0.15);
+
+  --shadow-main: 0 4px 6px -1px rgba(0, 0, 0, 0.01), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+}
+
+/* Sidebar Structural Re-coloring */
+html[data-theme="light"] .sidebar {
+  background-color: #F9F9FB !important;
+  border-right: 1px solid #E5E7EB !important;
+}
+
+html[data-theme="light"] .sidebar-footer {
+  background-color: #F1F3F6 !important;
+  border-top: 1px solid #E5E7EB !important;
+}
+
+html[data-theme="light"] .nav-item {
+  color: #5A6A85 !important;
+}
+
+html[data-theme="light"] .nav-item:hover {
+  background-color: rgba(15, 23, 42, 0.04) !important;
+  color: #1A1A1A !important;
+}
+
+html[data-theme="light"] .nav-item.active {
+  background: #E2EAF8 !important; /* Soft active accent highlight */
+  color: #2563EB !important;            /* Electric blue focus text */
+  font-weight: 600 !important;
+}
+
+/* Kanban System Color Softening Fix */
+html[data-theme="light"] .kanban-board {
+  background: transparent !important;
+}
+
+/* The muddy dark columns are now replaced with this light look */
+html[data-theme="light"] .kanban-column {
+  background-color: #EBF1F6 !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+}
+
+html[data-theme="light"] .column-header h3 {
+  color: #1A1A1A !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* Task Item Cards */
+html[data-theme="light"] .task-card {
+  background-color: #FFFFFF !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.01), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
+}
+
+html[data-theme="light"] .task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Form Input Alignment Fields */
+html[data-theme="light"] input[type="text"],
+html[data-theme="light"] input[type="search"],
+html[data-theme="light"] select {
+  color: #1A1A1A !important;
+  background-color: #FFFFFF !important;
+  border: 1px solid #D1D5DB !important;
+}
+
+html[data-theme="light"] input[type="text"]::placeholder,
+html[data-theme="light"] input[type="search"]::placeholder {
+  color: #9CA3AF !important;
+}

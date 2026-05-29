@@ -124,12 +124,13 @@ async function renderDirectoryTab(container) {
         </div>
         
         <div style="display:flex; gap:8px; align-items:center;">
+          <button id="batch-delete-employees-btn" class="btn btn-danger hidden" style="padding: 8px 16px; display:flex; align-items:center; gap:6px;">
+            <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+            <span id="batch-delete-emp-text">Delete Selected (0)</span>
+          </button>
           <button id="add-employee-btn" class="btn btn-primary" style="padding: 8px 16px;">
             <i data-lucide="user-plus"></i>
             <span>Add Employee</span>
-          </button>
-          <button id="bulk-delete-employees-btn" class="btn btn-danger" style="padding:8px 12px; font-size:12px;">
-            <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
           </button>
         </div>
       </div>
@@ -138,6 +139,7 @@ async function renderDirectoryTab(container) {
         <table class="custom-table" id="employees-table">
           <thead>
             <tr>
+              <th style="width: 40px; text-align: center;"><input type="checkbox" id="select-all-employees" /></th>
               <th>ID Number</th>
               <th>Full Name</th>
               <th>Designation Role</th>
@@ -149,6 +151,7 @@ async function renderDirectoryTab(container) {
           <tbody id="employees-list-body">
             ${employees.map(emp => `
               <tr class="pointer" data-id="${emp.id}">
+                <td style="text-align: center;" class="noclick"><input type="checkbox" class="emp-select-checkbox" data-id="${emp.id}" /></td>
                 <td><code>${emp.id}</code></td>
                 <td><strong>${emp.name}</strong></td>
                 <td>${emp.role}</td>
@@ -182,7 +185,10 @@ async function renderDirectoryTab(container) {
   // Bind Click profile inspect
   container.querySelectorAll('#employees-list-body tr').forEach(row => {
     row.addEventListener('click', async (e) => {
-      // Don't open if clicked direct button (will trigger anyway)
+      // Don't open if clicked checkbox or action buttons
+      if (e.target.closest('.noclick') || e.target.closest('input[type="checkbox"]') || e.target.closest('.btn')) {
+        return;
+      }
       const empId = row.getAttribute('data-id');
       const emp = await db.get('employees', empId);
       openEmployeeProfileModal(emp);
@@ -266,16 +272,58 @@ async function renderDirectoryTab(container) {
     });
   });
 
-  // Bind Bulk Delete Employee Button
-  document.getElementById('bulk-delete-employees-btn')?.addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to delete ALL employee records? This action cannot be undone.')) return;
-    const emps = await db.getAll('employees');
-    for (const emp of emps) {
-      await db.delete('employees', emp.id);
-      await sync.queueOperation('employees', 'delete', emp.id);
+  // Batch delete logic & helper function
+  const updateBatchDeleteEmpUI = () => {
+    const checkboxes = document.querySelectorAll('.emp-select-checkbox');
+    const checked = Array.from(checkboxes).filter(cb => cb.checked);
+    const selectAll = document.getElementById('select-all-employees');
+    const batchBtn = document.getElementById('batch-delete-employees-btn');
+    const batchText = document.getElementById('batch-delete-emp-text');
+
+    if (selectAll) {
+      selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
     }
-    app.showToast('Employees Deleted', `All ${emps.length} employee records have been removed.`, 'info');
-    await renderActiveHRTab();
+
+    if (batchBtn && batchText) {
+      if (checked.length > 0) {
+        batchBtn.classList.remove('hidden');
+        batchText.textContent = `Remove Selected Personnel (${checked.length})`;
+      } else {
+        batchBtn.classList.add('hidden');
+      }
+    }
+  };
+
+  // Bind select all checkbox
+  document.getElementById('select-all-employees')?.addEventListener('change', (e) => {
+    const isChecked = e.target.checked;
+    document.querySelectorAll('.emp-select-checkbox').forEach(cb => {
+      cb.checked = isChecked;
+    });
+    updateBatchDeleteEmpUI();
+  });
+
+  // Bind individual checkbox change
+  document.getElementById('employees-list-body')?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('emp-select-checkbox')) {
+      updateBatchDeleteEmpUI();
+    }
+  });
+
+  // Bind Batch Delete Button
+  document.getElementById('batch-delete-employees-btn')?.addEventListener('click', async () => {
+    const checkedBoxes = document.querySelectorAll('.emp-select-checkbox:checked');
+    const ids = Array.from(checkedBoxes).map(cb => cb.getAttribute('data-id'));
+    if (ids.length === 0) return;
+
+    if (confirm(`Are you absolutely sure you want to delete the ${ids.length} selected employee records?`)) {
+      for (const id of ids) {
+        await db.delete('employees', id);
+        await sync.queueOperation('employees', 'delete', id);
+      }
+      app.showToast('Employees Deleted', `Successfully removed ${ids.length} employee records.`, 'success');
+      await renderActiveHRTab();
+    }
   });
 }
 
