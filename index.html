@@ -25,8 +25,39 @@
   <!-- Toast System -->
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- Login Container -->
+  <div id="login-container" class="login-layout">
+    <div class="login-glass-card">
+      <div class="login-header">
+        <div class="login-logo">
+          <i data-lucide="layers" class="logo-icon-large"></i>
+        </div>
+        <h2>AeroGlass</h2>
+        <p>ERP Platform Access Portal</p>
+      </div>
+      <form id="login-form" style="display:flex; flex-direction:column; gap:16px;">
+        <div class="input-group" style="margin-bottom:0;">
+          <label style="text-transform: uppercase; font-size:11px; font-weight:700;">Operator Profile Identifier</label>
+          <input 
+            type="text" 
+            id="login-username"
+            placeholder="Enter workspace identity..." 
+            class="form-control-noicon"
+            required
+          />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">
+          Initialize Workspace Session
+        </button>
+      </form>
+      <div style="margin-top: 24px; text-align: center; font-size: 11px;" class="muted-text">
+        Showcase Sandbox Environment — No security credentials required to evaluate.
+      </div>
+    </div>
+  </div>
+
   <!-- Main Grid Layout -->
-  <div id="app-container" class="app-layout">
+  <div id="app-container" class="app-layout hidden">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
