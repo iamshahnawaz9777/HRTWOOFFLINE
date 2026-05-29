@@ -26,10 +26,78 @@ class AppCoordinator {
     this.modalTitle = document.getElementById('modal-title');
     this.modalBody = document.getElementById('modal-body');
     this.modalCloseBtn = document.getElementById('modal-close-btn');
+    this.currentUser = null;
 
     this.initEventListeners();
     this.initSyncStatus();
     this.initTheme();
+    this.initAuth();
+  }
+
+  /**
+   * Initialize authentication — check session and bind login/logout
+   */
+  initAuth() {
+    const loginContainer = document.getElementById('login-container');
+    const appContainer = document.getElementById('app-container');
+    const loginForm = document.getElementById('login-form');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    // Check for existing session
+    const savedUser = sessionStorage.getItem('aeroglass_user');
+    if (savedUser) {
+      this.currentUser = JSON.parse(savedUser);
+      loginContainer.classList.add('hidden');
+      appContainer.classList.remove('hidden');
+      this.updateProfileWidgets();
+    }
+
+    // Login form handler
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const usernameInput = document.getElementById('login-username');
+      const username = usernameInput.value.trim();
+      if (!username) return;
+
+      // Generate initials from username
+      const parts = username.split(/\s+/);
+      const initials = parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : username.slice(0, 2).toUpperCase();
+
+      this.currentUser = { username, role: 'System Admin', initials };
+      sessionStorage.setItem('aeroglass_user', JSON.stringify(this.currentUser));
+
+      // Animated transition: login out → app in
+      loginContainer.classList.add('fade-out');
+      setTimeout(() => {
+        loginContainer.classList.add('hidden');
+        loginContainer.classList.remove('fade-out');
+        appContainer.classList.remove('hidden');
+        appContainer.classList.add('fade-in');
+        this.updateProfileWidgets();
+        this.handleRoute();
+        lucide.createIcons();
+      }, 500);
+    });
+
+    // Logout handler
+    logoutBtn.addEventListener('click', () => {
+      sessionStorage.removeItem('aeroglass_user');
+      this.currentUser = null;
+      window.location.hash = '';
+      window.location.reload();
+    });
+  }
+
+  /**
+   * Update sidebar profile widgets with current user info
+   */
+  updateProfileWidgets() {
+    if (!this.currentUser) return;
+    document.getElementById('profile-name').textContent = this.currentUser.username;
+    document.getElementById('profile-role').textContent = this.currentUser.role;
+    document.getElementById('user-avatar').textContent = this.currentUser.initials || 'AD';
   }
 
   /**
@@ -43,8 +111,16 @@ class AppCoordinator {
       console.error('Failed to initialize database:', err);
     }
 
-    this.handleRoute();
-    window.addEventListener('hashchange', () => this.handleRoute());
+    // Only route if user is logged in
+    if (this.currentUser) {
+      this.handleRoute();
+      window.addEventListener('hashchange', () => this.handleRoute());
+    } else {
+      // Still listen for hash changes post-login
+      window.addEventListener('hashchange', () => {
+        if (this.currentUser) this.handleRoute();
+      });
+    }
   }
 
   /**
@@ -54,10 +130,8 @@ class AppCoordinator {
     const appContainer = document.getElementById('app-container');
     appContainer.classList.remove('hidden');
 
-    // Update Profile widgets with static Admin details
-    document.getElementById('profile-name').textContent = 'Admin';
-    document.getElementById('profile-role').textContent = 'System Admin';
-    document.getElementById('user-avatar').textContent = 'AD';
+    // Update Profile widgets with session user details
+    this.updateProfileWidgets();
 
     // Extract Route Hash
     let hash = window.location.hash.slice(1) || 'dashboard';
