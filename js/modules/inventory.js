@@ -68,10 +68,16 @@ export async function renderInventory(container, routeParts = []) {
           <div style="display:flex; flex-direction:column; gap:12px;">
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
               <h3 style="font-size:16px; font-family:var(--font-heading); font-weight:700;">Item Master Registry</h3>
-              <button id="add-item-btn" class="btn btn-primary" style="padding:6px 14px; font-size:13px;">
-                <i data-lucide="plus"></i>
-                <span>Register Item</span>
-              </button>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <button id="batch-delete-btn" class="btn btn-danger hidden" style="padding:6px 14px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                  <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                  <span id="batch-delete-text">Delete Selected (0)</span>
+                </button>
+                <button id="add-item-btn" class="btn btn-primary" style="padding:6px 14px; font-size:13px;">
+                  <i data-lucide="plus"></i>
+                  <span>Register Item</span>
+                </button>
+              </div>
             </div>
 
             <!-- Search bar + Category filter -->
@@ -95,6 +101,7 @@ export async function renderInventory(container, routeParts = []) {
             <table class="custom-table" style="font-size:13px;">
               <thead>
                 <tr>
+                  <th style="width: 40px; text-align: center;"><input type="checkbox" id="select-all-inv" /></th>
                   <th>Code</th>
                   <th>Item Name</th>
                   <th>Category</th>
@@ -208,6 +215,7 @@ async function populateItemsTable() {
     
     return `
       <tr>
+        <td style="text-align: center;"><input type="checkbox" class="inv-select-checkbox" data-id="${i.id}" /></td>
         <td><code>${i.code}</code></td>
         <td>
           <strong>${i.name}</strong>
@@ -236,12 +244,38 @@ async function populateItemsTable() {
       </tr>
     `;
   }).join('');
+
+  const selectAll = document.getElementById('select-all-inv');
+  if (selectAll) selectAll.checked = false;
+  const batchBtn = document.getElementById('batch-delete-btn');
+  if (batchBtn) batchBtn.classList.add('hidden');
 }
 
 /* ==========================================================================
    Event Bindings
    ========================================================================== */
 function bindInventoryEvents(container) {
+  const updateBatchDeleteUI = () => {
+    const checkboxes = document.querySelectorAll('.inv-select-checkbox');
+    const checked = Array.from(checkboxes).filter(cb => cb.checked);
+    const selectAll = document.getElementById('select-all-inv');
+    const batchBtn = document.getElementById('batch-delete-btn');
+    const batchText = document.getElementById('batch-delete-text');
+
+    if (selectAll) {
+      selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+    }
+
+    if (batchBtn && batchText) {
+      if (checked.length > 0) {
+        batchBtn.classList.remove('hidden');
+        batchText.textContent = `Delete Selected (${checked.length})`;
+      } else {
+        batchBtn.classList.add('hidden');
+      }
+    }
+  };
+
   // Search bar
   document.getElementById('inv-search-input')?.addEventListener('input', async (e) => {
     invSearchQuery = e.target.value;
@@ -267,6 +301,38 @@ function bindInventoryEvents(container) {
   document.getElementById('stock-tx-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     await handleTransactionSubmit(container);
+  });
+
+  // Select All checkbox
+  document.getElementById('select-all-inv')?.addEventListener('change', (e) => {
+    const isChecked = e.target.checked;
+    document.querySelectorAll('.inv-select-checkbox').forEach(cb => {
+      cb.checked = isChecked;
+    });
+    updateBatchDeleteUI();
+  });
+
+  // Individual checkboxes (delegated to table body/container)
+  document.getElementById('inventory-table-body')?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('inv-select-checkbox')) {
+      updateBatchDeleteUI();
+    }
+  });
+
+  // Batch delete button action
+  document.getElementById('batch-delete-btn')?.addEventListener('click', async () => {
+    const checkedBoxes = document.querySelectorAll('.inv-select-checkbox:checked');
+    const ids = Array.from(checkedBoxes).map(cb => cb.getAttribute('data-id'));
+    if (ids.length === 0) return;
+
+    if (confirm(`Are you sure you want to delete ${ids.length} selected items from the catalog? This cannot be undone.`)) {
+      for (const id of ids) {
+        await db.delete('inventory', id);
+        await sync.queueOperation('inventory', 'delete', id);
+      }
+      app.showToast('Batch Delete Successful', `Removed ${ids.length} items from inventory.`, 'success');
+      renderInventory(container);
+    }
   });
 
   bindTableButtons();

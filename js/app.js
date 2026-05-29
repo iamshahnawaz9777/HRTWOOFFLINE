@@ -14,6 +14,7 @@ import { renderInventory } from './modules/inventory.js';
 import { renderGatePass } from './modules/gatepass.js';
 import { renderUsers } from './modules/users.js';
 import { renderSettings } from './modules/settings.js';
+import { renderDatabaseExplorer } from './modules/database_explorer.js';
 
 class AppCoordinator {
   constructor() {
@@ -111,6 +112,10 @@ class AppCoordinator {
         case 'settings':
           titleEl.textContent = 'System Settings';
           await renderSettings(workspaceView);
+          break;
+        case 'db_explorer':
+          titleEl.textContent = 'Database Explorer';
+          await renderDatabaseExplorer(workspaceView);
           break;
         default:
           window.location.hash = '#dashboard';
