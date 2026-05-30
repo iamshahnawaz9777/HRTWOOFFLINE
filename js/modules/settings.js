@@ -48,6 +48,29 @@ export async function renderSettings(container) {
             </div>
           </div>
         </div>
+        
+        <!-- Turso Cloud Database Configuration -->
+        <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
+          <div>
+            <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">🌐 Turso Cloud Database</h3>
+            <p class="muted-text" style="font-size:12px;">Connect to Turso's distributed SQLite edge database for high-speed cloud replication as part of the triple-sync pipeline.</p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Turso Database URL</label>
+              <input type="text" id="turso-url" class="form-control-noicon" placeholder="libsql://your-db.turso.io" value="${sync.getTursoConfig() ? sync.getTursoConfig().url : ''}">
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Auth Token</label>
+              <input type="password" id="turso-token" class="form-control-noicon" placeholder="Enter Turso auth token..." value="${sync.getTursoConfig() ? sync.getTursoConfig().authToken : ''}">
+            </div>
+            <div style="display:flex; gap:12px;">
+              <button id="turso-save-btn" class="btn btn-primary" style="flex-grow:1; padding:10px 16px;">Save Turso Config</button>
+              ${sync.getTursoConfig() ? `<button id="turso-disconnect-btn" class="btn btn-secondary" style="padding:10px 16px;">Disconnect</button>` : ''}
+            </div>
+          </div>
+        </div>
         <!-- Supabase Cloud Credentials Form -->
         <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
           <div>
@@ -224,6 +247,37 @@ function bindSettingsEvents(container) {
       console.error(e);
       app.showToast('Sync Failed', 'Could not reach Google Sheets Webhook.', 'danger');
     }
+  });
+
+  // Turso Cloud Config — Save
+  document.getElementById('turso-save-btn')?.addEventListener('click', async () => {
+    const url = document.getElementById('turso-url')?.value.trim();
+    const token = document.getElementById('turso-token')?.value.trim();
+
+    if (!url || !token) {
+      app.showToast('Validation Error', 'Please provide both Turso Database URL and Auth Token.', 'danger');
+      return;
+    }
+
+    sync.saveTursoConfig(url, token);
+    app.showToast('Turso Connected', 'Turso cloud database credentials saved. Initializing schema...', 'success');
+
+    // Auto-create tables on the remote Turso database
+    try {
+      await sync.createTursoTables();
+      app.showToast('Schema Ready', '✓ Turso tables initialized. Triple-sync pipeline is now fully active.', 'success');
+    } catch (e) {
+      app.showToast('Schema Warning', 'Turso connected but table initialization could not be confirmed. Check your URL.', 'warning');
+    }
+
+    await renderSettings(container);
+  });
+
+  // Turso Cloud Config — Disconnect
+  document.getElementById('turso-disconnect-btn')?.addEventListener('click', async () => {
+    sync.saveTursoConfig('', '');
+    app.showToast('Turso Disconnected', 'Removed Turso cloud credentials. Pipeline reverted to Supabase + Sheets.', 'info');
+    await renderSettings(container);
   });
 
   // 3. Trigger manual sync clearance

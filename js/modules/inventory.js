@@ -5,7 +5,7 @@
 import { db } from '../db.js';
 import { auth } from '../auth.js';
 import { sync } from '../sync.js';
-import { DateEngine } from '../dateEngine.js';
+import { DateEngine, SystemDateFormatter } from '../dateEngine.js';
 
 const app = new Proxy({}, {
   get: (target, prop) => window.app ? window.app[prop] : undefined
@@ -165,6 +165,22 @@ export async function renderInventory(container, routeParts = []) {
             <div class="input-group" style="margin-bottom:0;">
               <label>Supplier / Purpose <span class="muted-text" style="font-size:10px;">(optional)</span></label>
               <input type="text" id="tx-purpose" class="form-control-noicon" placeholder="e.g. GlassCorp Ltd...">
+            </div>
+
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Hardware Name <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+              <input type="text" id="tx-hardware-name" class="form-control-noicon" placeholder="e.g. Door Handle, Aluminium Frame">
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div class="input-group" style="margin-bottom:0;">
+                <label>Party Name <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+                <input type="text" id="tx-party-name" class="form-control-noicon" placeholder="Supplier / Client">
+              </div>
+              <div class="input-group" style="margin-bottom:0;">
+                <label>Fitter / Helper Name <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+                <input type="text" id="tx-fitter-name" class="form-control-noicon" placeholder="Fitter or helper">
+              </div>
             </div>
 
             <button type="submit" class="btn btn-primary btn-block">
@@ -458,7 +474,7 @@ function openRegisterItemModal(container) {
     // Opening balance transaction
     if (currentStock > 0) {
       const txId = `tx-${Date.now()}`;
-      await db.put('transactions', { id: txId, itemId: id, type: 'inward', quantity: currentStock, sourceOrPurpose: 'Opening balance', date: new Date().toISOString().split('T')[0] });
+      await db.put('transactions', { id: txId, itemId: id, type: 'inward', quantity: currentStock, sourceOrPurpose: 'Opening balance', date: SystemDateFormatter.toSystemFormat(new Date()) });
     }
 
     app.closeModal();
@@ -579,9 +595,12 @@ async function handleTransactionSubmit(container) {
   const itemId = document.getElementById('tx-item-select')?.value;
   const type = document.getElementById('tx-type-select')?.value || 'inward';
   const quantityRaw = document.getElementById('tx-quantity')?.value;
-  const rawDate = document.getElementById('tx-date')?.value || new Date().toISOString().split('T')[0];
-  const date = DateEngine.stringify(rawDate);
+  const rawDate = document.getElementById('tx-date')?.value || new Date();
+  const date = SystemDateFormatter.toSystemFormat(rawDate);
   const purpose = document.getElementById('tx-purpose')?.value?.trim() || 'General transaction';
+  const hardwareName = document.getElementById('tx-hardware-name')?.value?.trim() || '';
+  const partyName = document.getElementById('tx-party-name')?.value?.trim() || '';
+  const fitterName = document.getElementById('tx-fitter-name')?.value?.trim() || '';
   const quantity = parseInt(quantityRaw || '0');
 
   if (!itemId) {
@@ -609,8 +628,9 @@ async function handleTransactionSubmit(container) {
   await sync.queueOperation('inventory', 'update', item);
 
   const txId = `tx-${Date.now()}`;
-  await db.put('transactions', { id: txId, itemId, type, quantity, sourceOrPurpose: purpose, date });
-  await sync.queueOperation('transactions', 'insert', { id: txId, itemId, type, quantity, sourceOrPurpose: purpose, date });
+  const txRecord = { id: txId, itemId, type, quantity, sourceOrPurpose: purpose, hardwareName, partyName, fitterName, date };
+  await db.put('transactions', txRecord);
+  await sync.queueOperation('transactions', 'insert', txRecord);
 
   app.showToast('Transaction Logged', `${type === 'inward' ? 'Received' : 'Issued'} ${quantity} ${item.unit} of ${item.name}. Stock: ${oldStock} → ${item.currentStock}`, 'success');
   renderInventory(container);
@@ -680,19 +700,25 @@ function bindTableButtons() {
             <input type="text" id="tx-log-search" placeholder="Filter by date, type, supplier..." class="form-control" style="padding-top:7px; padding-bottom:7px; font-size:12px;">
           </div>
 
-          <div class="table-responsive" style="max-height:320px; overflow-y:auto;">
-            <table class="custom-table" style="font-size:12px;" id="tx-log-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th style="text-align:center;">Qty</th>
-                  <th>Source / Purpose</th>
-                </tr>
-              </thead>
-              <tbody id="tx-log-body">
-              </tbody>
-            </table>
+          <div style="max-height:380px; overflow-y:auto;">
+            <div class="inv-log-table-wrapper">
+              <table class="inv-log-table" id="tx-log-table">
+                <thead>
+                  <tr>
+                    <th>S NO</th>
+                    <th>DATE</th>
+                    <th>HARDWARE NAME</th>
+                    <th>PARTY NAME</th>
+                    <th>FITTER NAME /HELPAR NAME</th>
+                    <th>INPUT</th>
+                    <th class="output-col">OUTPUT</th>
+                    <th>TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody id="tx-log-body">
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       `;
@@ -709,7 +735,7 @@ function bindTableButtons() {
                 const field = e.target.getAttribute('data-field');
                 let val = e.target.value;
                 if (field === 'quantity') val = parseInt(val) || 0;
-                if (field === 'date') val = DateEngine.stringify(val);
+                if (field === 'date') val = SystemDateFormatter.toSystemFormat(val);
 
                 const tx = await db.get('transactions', txId);
                 if (tx) {
@@ -717,9 +743,17 @@ function bindTableButtons() {
                    await db.put('transactions', tx);
                    await sync.queueOperation('transactions', 'update', tx);
                    
-                   const newStock = await recalculateStock(itemId);
-                   const ms = document.getElementById('modal-current-stock');
-                   if (ms) ms.innerText = newStock + ' ' + item.unit;
+                   // Recalculate stock only for quantity/type changes
+                   if (field === 'quantity' || field === 'type') {
+                     const newStock = await recalculateStock(itemId);
+                     const ms = document.getElementById('modal-current-stock');
+                     if (ms) ms.innerText = newStock + ' ' + item.unit;
+                   }
+                   
+                   // Re-render to update running totals
+                   const allTxRefresh = await db.getAll('transactions');
+                   const refreshedTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+                   renderModalLogs(refreshedTx);
                    populateItemsTable();
                 }
              });
@@ -729,13 +763,16 @@ function bindTableButtons() {
 
       renderModalLogs(itemTx);
 
-      // Bind log search
+      // Bind log search — includes all new register fields
       document.getElementById('tx-log-search')?.addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase();
         const filteredTx = itemTx.filter(t =>
           (t.date || '').includes(q) ||
           (t.type || '').includes(q) ||
-          (t.sourceOrPurpose || '').toLowerCase().includes(q)
+          (t.sourceOrPurpose || '').toLowerCase().includes(q) ||
+          (t.hardwareName || '').toLowerCase().includes(q) ||
+          (t.partyName || '').toLowerCase().includes(q) ||
+          (t.fitterName || '').toLowerCase().includes(q)
         );
         renderModalLogs(filteredTx);
       });
@@ -755,9 +792,8 @@ function bindTableButtons() {
               const type = (row.type || row.Type || 'inward').toLowerCase();
               const quantity = parseInt(row.quantity || row.Quantity) || 0;
               const sourceOrPurpose = row.description || row.sourceOrPurpose || row.Description || '';
-              let date = row.date || row.Date || new Date().toISOString().split('T')[0];
-              if (date instanceof Date) date = date.toISOString().split('T')[0];
-              date = DateEngine.stringify(date);
+              let date = row.date || row.Date || new Date();
+              date = SystemDateFormatter.toSystemFormat(date);
               
               const newTx = { id: txId, itemId, type, quantity, sourceOrPurpose, date };
               await db.put('transactions', newTx);
@@ -780,37 +816,76 @@ function bindTableButtons() {
         });
       });
 
-      // Bind export
+      // Bind export — full register columns
       document.getElementById('modal-log-export-btn')?.addEventListener('click', () => {
-         const csv = Papa.unparse(itemTx.map(t => ({
-           date: t.date, type: t.type, quantity: t.quantity, description: t.sourceOrPurpose
-         })));
-         const blob = new Blob([csv], { type: 'text/csv' });
-         const url = URL.createObjectURL(blob);
-         const link = document.createElement('a');
-         link.href = url;
-         link.download = `${item.name}_logs.csv`;
-         link.click();
+        let runTotal = 0;
+        const sorted = [...itemTx].sort((a, b) => a.date.localeCompare(b.date));
+        const rows = sorted.map((t, i) => {
+          const isInward = t.type === 'inward';
+          const input = isInward ? t.quantity : '';
+          const output = !isInward ? t.quantity : '';
+          runTotal += isInward ? t.quantity : -t.quantity;
+          return {
+            'S NO': i + 1,
+            'DATE': t.date,
+            'HARDWARE NAME': t.hardwareName || '',
+            'PARTY NAME': t.partyName || '',
+            'FITTER NAME / HELPER NAME': t.fitterName || t.sourceOrPurpose || '',
+            'INPUT': input,
+            'OUTPUT': output,
+            'TOTAL': runTotal
+          };
+        });
+        const csv = Papa.unparse(rows);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${item.name}_register_log.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
       });
     });
   });
 }
 
 function renderTxRows(txList) {
-  if (txList.length === 0) return `<tr><td colspan="4" class="text-center muted-text" style="padding:20px;">No transactions found.</td></tr>`;
-  return txList.map(t => `
-    <tr>
-      <td><input type="date" class="form-control-noicon log-edit" data-id="${t.id}" data-field="date" value="${DateEngine.toPickerFormat(t.date)}" style="padding:2px; font-size:11px; width:110px;"></td>
-      <td>
-        <select class="form-control-noicon log-edit" data-id="${t.id}" data-field="type" style="padding:2px; font-size:11px;">
-          <option value="inward" ${t.type === 'inward' ? 'selected' : ''}>Inward</option>
-          <option value="outward" ${t.type === 'outward' ? 'selected' : ''}>Outward</option>
-        </select>
-      </td>
-      <td style="text-align:center;"><input type="number" class="form-control-noicon log-edit" data-id="${t.id}" data-field="quantity" value="${t.quantity}" style="padding:2px; font-size:11px; width:60px; text-align:center;" min="1"></td>
-      <td><input type="text" class="form-control-noicon log-edit" data-id="${t.id}" data-field="sourceOrPurpose" value="${t.sourceOrPurpose}" style="padding:2px; font-size:11px; width:100%;"></td>
-    </tr>
-  `).join('');
+  if (txList.length === 0) return `<tr><td colspan="8" style="text-align:center; padding:20px; color:#555;">No transactions found.</td></tr>`;
+  
+  // Sort chronologically for running total calculation
+  const sorted = [...txList].sort((a, b) => a.date.localeCompare(b.date));
+  let runningTotal = 0;
+
+  return sorted.map((t, i) => {
+    const isInward = t.type === 'inward';
+    const inputVal = isInward ? t.quantity : '';
+    const outputVal = !isInward ? t.quantity : '';
+    runningTotal += isInward ? t.quantity : -t.quantity;
+
+    // Parse sourceOrPurpose for party/fitter info
+    const source = t.sourceOrPurpose || '';
+
+    return `
+      <tr>
+        <td class="text-center">${i + 1}</td>
+        <td>
+          <input type="date" class="log-edit-field log-edit" data-id="${t.id}" data-field="date" value="${DateEngine.toPickerFormat(t.date)}" style="width:120px;">
+        </td>
+        <td class="uppercase">
+          <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="hardwareName" value="${t.hardwareName || t.itemName || ''}" style="width:100%;" placeholder="—">
+        </td>
+        <td>
+          <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="partyName" value="${t.partyName || ''}" style="width:100%;" placeholder="—">
+        </td>
+        <td>
+          <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="fitterName" value="${t.fitterName || source}" style="width:100%;" placeholder="—">
+        </td>
+        <td class="text-center">${inputVal}</td>
+        <td class="text-center">${outputVal}</td>
+        <td class="text-center" style="font-weight:700;">${runningTotal}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 /* ==========================================================================

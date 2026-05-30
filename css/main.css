@@ -266,12 +266,54 @@ body {
    Layout Structures
    ========================================================================== */
 
-/* Main APP Grid Grid */
 .app-layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
   height: 100vh;
+  transition: grid-template-columns var(--transition-normal);
+}
+
+.app-layout.collapsed {
+  grid-template-columns: 80px 1fr;
+}
+
+.app-layout.collapsed .sidebar {
+  background: #F9F9FB !important;
+}
+
+.app-layout.collapsed .brand-text,
+.app-layout.collapsed .nav-item span,
+.app-layout.collapsed .user-info,
+.app-layout.collapsed .logout-btn span {
+  display: none !important;
+}
+
+.app-layout.collapsed .sidebar-brand {
+  flex-direction: column;
+  padding: 16px 8px;
+  gap: 16px;
+}
+
+.app-layout.collapsed #sidebar-collapse-btn {
+  margin: 0 !important;
+}
+
+.app-layout.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px;
+}
+
+.app-layout.collapsed .nav-item i {
+  margin: 0 !important;
+}
+
+.app-layout.collapsed .user-profile-widget {
+  justify-content: center;
+}
+
+.app-layout.collapsed .sidebar-footer {
+  padding: 20px 8px;
 }
 
 /* Sidebar Styling */
@@ -2130,4 +2172,304 @@ html[data-theme="light"] input[type="search"]::placeholder {
 .sidebar-footer-actions .logout-btn i {
   width: 16px;
   height: 16px;
+}
+
+/* ==========================================================================
+   Triple-Database Sync Status Widget
+   ========================================================================== */
+.db-sync-widget {
+  margin: 16px 16px 0;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-normal);
+}
+
+.db-sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.db-sync-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.db-sync-master-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  transition: background 0.3s ease;
+}
+
+.db-sync-master-dot.all-online {
+  background: var(--success);
+  animation: pulse-sync 1.5s infinite alternate;
+}
+
+.db-sync-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.db-sync-item-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.db-sync-item-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.db-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  transition: background 0.3s ease;
+}
+
+.db-sync-dot.online {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.db-sync-dot.offline {
+  background: var(--danger);
+  box-shadow: 0 0 4px var(--danger-glow);
+}
+
+.db-sync-status-text {
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.db-sync-item-status .db-sync-dot.online + .db-sync-status-text {
+  color: var(--success);
+}
+
+.db-sync-item-status .db-sync-dot.offline + .db-sync-status-text {
+  color: var(--danger);
+}
+
+/* Light theme overrides for sync widget */
+html[data-theme="light"] .db-sync-widget {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+/* Collapsed sidebar: hide sync widget */
+.app-layout.collapsed .db-sync-widget {
+  display: none !important;
+}
+
+/* ==========================================================================
+   Overhauled Inventory Log Table (Register Style)
+   ========================================================================== */
+.inv-log-table-wrapper {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.inv-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.inv-log-table thead {
+  background: #000000;
+}
+
+.inv-log-table thead th {
+  padding: 12px 14px;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-right: 1px solid #333;
+  white-space: nowrap;
+}
+
+.inv-log-table thead th:last-child {
+  border-right: none;
+}
+
+.inv-log-table thead th.output-col {
+  color: #f87171;
+}
+
+.inv-log-table tbody {
+  background: #B3B3B3;
+}
+
+.inv-log-table tbody tr {
+  border-bottom: 1px solid #000;
+}
+
+.inv-log-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.inv-log-table tbody td {
+  padding: 10px 14px;
+  color: #000000;
+  font-weight: 600;
+  font-size: 12px;
+  border-right: 1px solid #000;
+}
+
+.inv-log-table tbody td:last-child {
+  border-right: none;
+}
+
+.inv-log-table tbody td.text-center {
+  text-align: center;
+}
+
+.inv-log-table tbody td.uppercase {
+  text-transform: uppercase;
+}
+
+/* Editable fields inside the new log table */
+.inv-log-table .log-edit-field {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #000;
+  font-family: var(--font-body);
+}
+
+.inv-log-table .log-edit-field:focus {
+  outline: 2px solid var(--primary-color);
+  background: #fff;
+}
+/* ==========================================================================
+   Triple-Database Sync Status Widget (Sidebar)
+   ========================================================================== */
+.db-sync-widget {
+  margin: 0 12px 16px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.sidebar.collapsed .db-sync-widget {
+  display: none;
+}
+
+.db-sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.db-sync-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.db-sync-master-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7280;
+  display: inline-block;
+  transition: background 0.3s;
+}
+
+.db-sync-master-dot.all-online {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+  50%       { box-shadow: 0 0 12px rgba(16, 185, 129, 0.8); }
+}
+
+.db-sync-items {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.db-sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.db-sync-item-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.db-sync-item-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.db-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.db-sync-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+}
+
+.db-sync-dot.offline {
+  background: #6b7280;
+}
+
+.db-sync-status-text {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ==========================================================================
+   Inv-Log Table Wrapper (scrollable)
+   ========================================================================== */
+.inv-log-table-wrapper {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
 }

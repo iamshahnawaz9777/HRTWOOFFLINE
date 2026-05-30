@@ -38,3 +38,15 @@ export const DateEngine = {
     return `${y}-${m}-${d}`;
   }
 };
+
+export const SystemDateFormatter = {
+  // Converts any date input to MM-DD-YYYY
+  toSystemFormat: (dateInput) => {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return dateInput; // Return as-is if already a custom string
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}-${dd}-${yyyy}`;
+  }
+};

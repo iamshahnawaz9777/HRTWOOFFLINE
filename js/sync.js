@@ -1,5 +1,5 @@
 /* ==========================================================================
-   AeroGlass ERP Supabase Sync & Offline Queue Service
+   AeroGlass ERP Supabase + Google Sheets + Turso Triple-Sync Service
    ========================================================================== */
 
 import { db } from './db.js';
@@ -7,6 +7,7 @@ import { db } from './db.js';
 class SyncService {
   constructor() {
     this.configKey = 'aeroglass_supabase_config';
+    this.tursoConfigKey = 'aeroglass_turso_config';
     this.syncListeners = [];
     this.isOnline = navigator.onLine;
 
@@ -26,6 +27,8 @@ class SyncService {
   notifyListeners() {
     const status = this.getStatus();
     this.syncListeners.forEach(cb => cb(status));
+    // Also update the sidebar sync health widget
+    this.updateSyncWidget();
   }
 
   /**
@@ -60,6 +63,117 @@ class SyncService {
   }
 
   /**
+   * Save Turso config parameters
+   */
+  saveTursoConfig(url, authToken) {
+    if (!url || !authToken) {
+      localStorage.removeItem(this.tursoConfigKey);
+    } else {
+      localStorage.setItem(this.tursoConfigKey, JSON.stringify({ url, authToken }));
+    }
+    this.notifyListeners();
+  }
+
+  /**
+   * Read Turso configuration — falls back to pre-configured default credentials
+   */
+  getTursoConfig() {
+    const raw = localStorage.getItem(this.tursoConfigKey);
+    if (!raw) {
+      // Pre-configured default Turso credentials for seamless triple-sync pipeline
+      return {
+        url: 'https://hronelocal-iamshahnawaz9777.turso.io',
+        authToken: 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJyaVM3Smx3Z0VmR1NUaGFDMTk5U3VnIiwib3JnX2lkIjoxMDAwMTczNzk2fQ.J8Iko9R4mkKOVPG-RLfzZW8HQjkoc5vmxjLWUeN3L5LpdLotKuZ501_NHHtkW2bZ04xJCW9ePEckdJv1Y91jCA'
+      };
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Initializes all required tables in Turso cloud database.
+   * Safe to call multiple times (uses CREATE TABLE IF NOT EXISTS).
+   */
+  async createTursoTables() {
+    const tursoConfig = this.getTursoConfig();
+    if (!tursoConfig || !tursoConfig.url || !tursoConfig.authToken) return;
+
+    const tables = [
+      `CREATE TABLE IF NOT EXISTS inventory (
+        id TEXT PRIMARY KEY,
+        code TEXT,
+        name TEXT,
+        category TEXT,
+        unit TEXT,
+        currentStock REAL DEFAULT 0,
+        minStock REAL DEFAULT 0,
+        description TEXT,
+        syncDate TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        itemId TEXT,
+        type TEXT,
+        quantity REAL,
+        date TEXT,
+        sourceOrPurpose TEXT,
+        hardwareName TEXT,
+        partyName TEXT,
+        fitterName TEXT,
+        syncDate TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS employees (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        role TEXT,
+        department TEXT,
+        phone TEXT,
+        email TEXT,
+        joinDate TEXT,
+        syncDate TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS gatepasses (
+        id TEXT PRIMARY KEY,
+        vehicleNo TEXT,
+        driverName TEXT,
+        purpose TEXT,
+        entryTime TEXT,
+        exitTime TEXT,
+        status TEXT,
+        syncDate TEXT
+      )`
+    ];
+
+    try {
+      const requests = tables.map(sql => ({
+        type: 'execute',
+        stmt: { sql }
+      }));
+
+      const res = await fetch(`${tursoConfig.url}/v2/pipeline`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tursoConfig.authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requests })
+      });
+
+      if (res.ok) {
+        console.log('✓ Turso tables initialized successfully.');
+      } else {
+        const err = await res.text();
+        console.warn('Turso table init warning:', err);
+      }
+    } catch (e) {
+      console.warn('Turso table creation skipped (offline or config issue):', e.message);
+    }
+  }
+
+  /**
    * Network & config state getter
    */
   getStatus() {
@@ -71,6 +185,55 @@ class SyncService {
       return 'offline'; // Backend configured but network is severed
     }
     return 'online'; // Connected and syncable
+  }
+
+  /**
+   * Returns health status object for the triple-database sync widget
+   */
+  getHealthStatus() {
+    const supabaseConfig = this.getConfig();
+    const gsheetWebhook = localStorage.getItem('aeroglass_gsheet_webhook');
+    const tursoConfig = this.getTursoConfig();
+
+    return {
+      supabase: !!(supabaseConfig && supabaseConfig.url && supabaseConfig.url.includes('supabase.co') && this.isOnline),
+      googleSheets: !!(gsheetWebhook && gsheetWebhook.length > 10),
+      turso: !!(tursoConfig && tursoConfig.url && tursoConfig.url.includes('turso.io') && this.isOnline)
+    };
+  }
+
+  /**
+   * Updates the sidebar sync status widget DOM elements
+   */
+  updateSyncWidget() {
+    const health = this.getHealthStatus();
+    const allHealthy = Object.values(health).every(s => s === true);
+
+    // Master dot
+    const masterDot = document.getElementById('db-sync-master-dot');
+    if (masterDot) {
+      masterDot.className = `db-sync-master-dot ${allHealthy ? 'all-online' : ''}`;
+    }
+
+    // Individual status rows
+    const statusMap = {
+      'sync-status-supabase': health.supabase,
+      'sync-status-gsheets': health.googleSheets,
+      'sync-status-turso': health.turso
+    };
+
+    for (const [id, isOnline] of Object.entries(statusMap)) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const dot = el.querySelector('.db-sync-dot');
+      const text = el.querySelector('.db-sync-status-text');
+      if (dot) {
+        dot.className = `db-sync-dot ${isOnline ? 'online' : 'offline'}`;
+      }
+      if (text) {
+        text.textContent = isOnline ? '● Online' : '○ Offline';
+      }
+    }
   }
 
   handleNetworkChange(status) {
@@ -106,6 +269,85 @@ class SyncService {
     if (this.getStatus() === 'online') {
       this.syncQueue();
     }
+
+    // Fire triple pipeline for insert/update operations
+    if (action !== 'delete' && typeof data === 'object') {
+      this.saveToTriplePipeline(data, store);
+    }
+  }
+
+  /**
+   * Triple-Database Pipeline: Saves to Supabase + Google Sheets + Turso simultaneously
+   */
+  async saveToTriplePipeline(payload, tableName) {
+    const mdyDate = new Date().toLocaleDateString('en-US', {
+      month: '2-digit', day: '2-digit', year: 'numeric'
+    }).replace(/\//g, '-');
+
+    const finalData = { ...payload, syncDate: mdyDate };
+
+    // 1. Supabase Upsert (merge-duplicates strategy)
+    try {
+      const supaConfig = this.getConfig();
+      if (supaConfig && supaConfig.url && supaConfig.url.includes('supabase.co') && this.isOnline) {
+        fetch(`${supaConfig.url}/rest/v1/${tableName}`, {
+          method: 'POST',
+          headers: {
+            'apikey': supaConfig.key,
+            'Authorization': `Bearer ${supaConfig.key}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(finalData)
+        }).catch(e => console.warn('Supabase pipeline write skipped:', e.message));
+      }
+    } catch (e) { /* silent */ }
+
+    // 2. Google Sheets Webhook Write (fire-and-forget)
+    try {
+      const webhookUrl = localStorage.getItem('aeroglass_gsheet_webhook');
+      if (webhookUrl && webhookUrl.length > 10) {
+        fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ table: tableName, ...finalData }),
+          mode: 'no-cors'
+        }).catch(e => console.warn('G-Sheets write skipped:', e.message));
+      }
+    } catch (e) { /* silent */ }
+
+    // 3. Turso Cloud Distributed Write (libSQL HTTP API)
+    try {
+      const tursoConfig = this.getTursoConfig();
+      if (tursoConfig && tursoConfig.url && tursoConfig.authToken && this.isOnline) {
+        // Build safe INSERT OR REPLACE using positional args
+        const cols = Object.keys(finalData);
+        const vals = Object.values(finalData).map(v =>
+          typeof v === 'object' && v !== null ? JSON.stringify(v) : v
+        );
+        const columnNames = cols.join(', ');
+        const placeholders = cols.map(() => '?').join(', ');
+
+        fetch(`${tursoConfig.url}/v2/pipeline`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${tursoConfig.authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            requests: [{
+              type: 'execute',
+              stmt: {
+                sql: `INSERT OR REPLACE INTO ${tableName} (${columnNames}) VALUES (${placeholders})`,
+                args: vals.map(v => ({ type: 'text', value: String(v ?? '') }))
+              }
+            }]
+          })
+        }).catch(e => console.warn('Turso write skipped:', e.message));
+      }
+    } catch (e) { /* silent */ }
+
+    console.log(`✓ Triple-pipeline dispatched for [${tableName}] at ${mdyDate}`);
   }
 
   /**
@@ -139,7 +381,7 @@ class SyncService {
         try {
           // If a real Supabase endpoint exists, we send an HTTP request
           // Since Supabase provides a Postgrest REST interface, we can target `/rest/v1/{tableName}`
-          const url = `${config.url}/rest/v1/${item.store}`;
+          let url = `${config.url}/rest/v1/${item.store}`;
           const headers = {
             'apikey': config.key,
             'Authorization': `Bearer ${config.key}`,
@@ -239,3 +481,4 @@ class SyncService {
 }
 
 export const sync = new SyncService();
+

@@ -61,12 +61,46 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-logo">
+        <div class="brand-logo" style="flex-shrink: 0;">
           <i data-lucide="layers" class="logo-icon"></i>
         </div>
         <div class="brand-text">
           <h1>AeroGlass</h1>
           <span>ERP Platform</span>
+        </div>
+        <button id="sidebar-collapse-btn" class="sidebar-collapse-btn" title="Toggle Sidebar" style="margin-left: auto; background: transparent; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s;">
+          <i data-lucide="chevron-left" id="sidebar-collapse-icon" style="width: 20px; height: 20px;"></i>
+        </button>
+      </div>
+
+      <!-- Triple-Database Sync Status Indicator -->
+      <div id="db-sync-widget" class="db-sync-widget">
+        <div class="db-sync-header">
+          <span class="db-sync-label">DATABASE SYNC</span>
+          <span class="db-sync-master-dot" id="db-sync-master-dot"></span>
+        </div>
+        <div class="db-sync-items">
+          <div class="db-sync-item">
+            <span class="db-sync-item-label">Supabase Core</span>
+            <span class="db-sync-item-status" id="sync-status-supabase">
+              <span class="db-sync-dot offline"></span>
+              <span class="db-sync-status-text">Offline</span>
+            </span>
+          </div>
+          <div class="db-sync-item">
+            <span class="db-sync-item-label">G-Sheets Backup</span>
+            <span class="db-sync-item-status" id="sync-status-gsheets">
+              <span class="db-sync-dot offline"></span>
+              <span class="db-sync-status-text">Offline</span>
+            </span>
+          </div>
+          <div class="db-sync-item">
+            <span class="db-sync-item-label">Turso Cloud</span>
+            <span class="db-sync-item-status" id="sync-status-turso">
+              <span class="db-sync-dot offline"></span>
+              <span class="db-sync-status-text">Offline</span>
+            </span>
+          </div>
         </div>
       </div>
 

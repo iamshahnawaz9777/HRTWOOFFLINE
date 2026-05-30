@@ -33,6 +33,11 @@ class AppCoordinator {
     this.initSyncStatus();
     this.initTheme();
     this.initAuth();
+
+    // Auto-provision Turso cloud schema in the background on startup
+    if (navigator.onLine) {
+      sync.createTursoTables().catch(e => console.warn('Turso init skipped on startup:', e.message));
+    }
   }
 
   /**
@@ -277,7 +282,20 @@ class AppCoordinator {
       if (e.target === this.modalOverlay) this.closeModal();
     });
 
-    // 2. Dark/Light Theme Switching
+    // 2. Sidebar Collapse Toggle
+    const collapseBtn = document.getElementById('sidebar-collapse-btn');
+    const appLayout = document.getElementById('app-container');
+
+    if (collapseBtn && appLayout) {
+      collapseBtn.addEventListener('click', () => {
+        appLayout.classList.toggle('collapsed');
+        const isCollapsed = appLayout.classList.contains('collapsed');
+        collapseBtn.innerHTML = `<i data-lucide="${isCollapsed ? 'chevron-right' : 'chevron-left'}" id="sidebar-collapse-icon" style="width: 20px; height: 20px;"></i>`;
+        lucide.createIcons();
+      });
+    }
+
+    // 3. Dark/Light Theme Switching
     const themeBtn = document.getElementById('theme-toggle');
     const sunIcon = document.getElementById('theme-icon-sun');
     const moonIcon = document.getElementById('theme-icon-moon');
@@ -306,23 +324,29 @@ class AppCoordinator {
     const label = document.getElementById('sync-label');
 
     sync.subscribe((status) => {
-      indicator.className = 'sync-indicator ' + status;
+      if (indicator) indicator.className = 'sync-indicator ' + status;
       
       switch (status) {
         case 'online':
-          label.textContent = 'Sync Connected';
+          if (label) label.textContent = 'Sync Connected';
           break;
         case 'offline':
-          label.textContent = 'Offline Cache';
+          if (label) label.textContent = 'Offline Cache';
           break;
         case 'syncing':
-          label.textContent = 'Syncing...';
+          if (label) label.textContent = 'Syncing...';
           break;
         case 'local-only':
-          label.textContent = 'Local Database';
+          if (label) label.textContent = 'Local Database';
           break;
       }
+
+      // Refresh the triple-database sidebar status dots
+      sync.updateSyncWidget();
     });
+
+    // Initial widget paint on load
+    sync.updateSyncWidget();
   }
 
   /**
