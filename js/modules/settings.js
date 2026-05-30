@@ -23,6 +23,31 @@ export async function renderSettings(container) {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
       <!-- Column 1: Supabase integration credentials and manual sync -->
       <div style="display:flex; flex-direction:column; gap:24px;">
+        
+        <!-- Google Sheets Sync Configuration -->
+        <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
+          <div>
+            <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">📊 Automated Failover Backup</h3>
+            <p class="muted-text" style="font-size:12px;">Establishes real-time Google Sheets replication matrices protecting core data layers if remote infrastructure changes.</p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Google AppScript Webhook Deploy Endpoint URL</label>
+              <input type="text" id="g-webhook-url" class="form-control-noicon" placeholder="https://script.google.com/macros/s/.../exec" value="${localStorage.getItem('aeroglass_gsheet_webhook') || ''}">
+            </div>
+            
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" id="g-autosync-check" ${localStorage.getItem('aeroglass_gsheet_autosync') !== 'false' ? 'checked' : ''} style="width:16px; height:16px;">
+              <label for="g-autosync-check" style="font-size:12px; margin:0;">Auto-trigger sequential background sync array hourly</label>
+            </div>
+
+            <div style="display:flex; gap:12px;">
+              <button id="g-save-btn" class="btn btn-primary" style="flex-grow:1; padding:10px 16px;">Save Connection</button>
+              <button id="g-forcesync-btn" class="btn btn-secondary" style="padding:10px 16px;">Sync Live Snapshots Now</button>
+            </div>
+          </div>
+        </div>
         <!-- Supabase Cloud Credentials Form -->
         <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
           <div>
@@ -157,6 +182,49 @@ function bindSettingsEvents(container) {
       await renderSettings(container);
     });
   }
+
+  // Google Sheets Config
+  document.getElementById('g-save-btn')?.addEventListener('click', () => {
+    const url = document.getElementById('g-webhook-url')?.value.trim();
+    const autoSync = document.getElementById('g-autosync-check')?.checked;
+
+    localStorage.setItem('aeroglass_gsheet_webhook', url);
+    localStorage.setItem('aeroglass_gsheet_autosync', autoSync ? 'true' : 'false');
+
+    app.showToast('Google Sheets Linked', 'Failover backup parameters saved successfully.', 'success');
+  });
+
+  document.getElementById('g-forcesync-btn')?.addEventListener('click', async () => {
+    const url = document.getElementById('g-webhook-url')?.value.trim();
+    if (!url) {
+      app.showToast('Missing Webhook', 'Please provide a valid Google AppScript URL first.', 'warning');
+      return;
+    }
+
+    app.showToast('Sync Started', 'Pushing database snapshots to Google Sheets...', 'info');
+    try {
+      const inventory = await db.getAll('inventory');
+      const employees = await db.getAll('employees');
+      let tools = [];
+      try { tools = await db.getAll('tools_tracking'); } catch (e) {}
+
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timestamp: new Date().toISOString(),
+          inventory,
+          hr_employees: employees,
+          tools
+        })
+      });
+      app.showToast('Matrix Push Succeeded', 'Spreadsheet state successfully replicated.', 'success');
+    } catch (e) {
+      console.error(e);
+      app.showToast('Sync Failed', 'Could not reach Google Sheets Webhook.', 'danger');
+    }
+  });
 
   // 3. Trigger manual sync clearance
   const syncBtn = document.getElementById('manual-sync-btn');

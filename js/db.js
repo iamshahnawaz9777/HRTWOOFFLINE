@@ -3,7 +3,7 @@
    ========================================================================== */
 
 const DB_NAME = 'AeroGlassERP_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 class IndexedDBStore {
   constructor() {
@@ -80,6 +80,16 @@ class IndexedDBStore {
         // 10. Sync Queue Store
         if (!db.objectStoreNames.contains('syncQueue')) {
           db.createObjectStore('syncQueue', { keyPath: 'id' });
+        }
+
+        // 11. Tools Tracking Store
+        if (!db.objectStoreNames.contains('tools_tracking')) {
+          db.createObjectStore('tools_tracking', { keyPath: 'id' });
+        }
+
+        // 12. Inventory Categories Store
+        if (!db.objectStoreNames.contains('inventory_categories')) {
+          db.createObjectStore('inventory_categories', { keyPath: 'id' });
         }
       };
     });
@@ -339,6 +349,19 @@ class IndexedDBStore {
       }
     ];
     for (const gp of defaultGatePasses) await this.put('gatepasses', gp);
+
+    // 10. Inventory Categories
+    const defaultCategories = [
+      { id: 'cat-1', name: 'Glass Sheets' },
+      { id: 'cat-2', name: 'Hardware Fittings' },
+      { id: 'cat-3', name: 'Tools & Kits' },
+      { id: 'cat-4', name: 'Chemicals' },
+      { id: 'cat-5', name: 'Others' }
+    ];
+    for (const cat of defaultCategories) await this.put('inventory_categories', cat);
+
+    // 11. Tools Tracking default seed (Empty initially, but could be seeded if needed)
+    // No seed needed for tools tracking right now.
 
     console.log('Seeding process completed successfully!');
   }

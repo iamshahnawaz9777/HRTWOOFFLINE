@@ -5,6 +5,7 @@
 import { db } from '../db.js';
 import { auth } from '../auth.js';
 import { sync } from '../sync.js';
+import { DateEngine } from '../dateEngine.js';
 
 const app = new Proxy({}, {
   get: (target, prop) => window.app ? window.app[prop] : undefined
@@ -19,6 +20,7 @@ let invSearchQuery = '';
 export async function renderInventory(container, routeParts = []) {
   const items = await db.getAll('inventory');
   const transactions = await db.getAll('transactions');
+  const categories = await db.getAll('inventory_categories');
   const TODAY_STR = new Date().toISOString().split('T')[0];
 
   // Add import/export tools bar at top
@@ -60,6 +62,17 @@ export async function renderInventory(container, routeParts = []) {
         </div>
       </div>
 
+      <!-- Inventory Category Manager -->
+      <div style="padding: 16px; background: #F9F9FB; border-radius: 12px; border: 1px solid var(--glass-border); display: flex; align-items: flex-end; gap: 16px;">
+        <div style="flex-grow: 1;">
+          <label style="display: block; font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 4px;">Create Custom Inventory Asset Category Class</label>
+          <input type="text" id="new-cat-name" placeholder="e.g., Heavy Machinery, Safety Apparel, Glass Sheet Panels..." class="form-control-noicon" style="background: white;" />
+        </div>
+        <button id="add-cat-btn" class="btn btn-primary" style="padding: 10px 16px; font-size: 12px;">
+          + Build Category
+        </button>
+      </div>
+
       <!-- Main Grid: Table + Transaction Form -->
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:24px; align-items:start;">
         <!-- Item Registry Table -->
@@ -88,11 +101,7 @@ export async function renderInventory(container, routeParts = []) {
               </div>
               <select id="inv-category-filter" class="form-control-noicon" style="padding:7px 12px; font-size:12px; min-width:150px;">
                 <option value="">All Categories</option>
-                <option value="glass sheets" ${selectedCategory === 'glass sheets' ? 'selected' : ''}>Glass Sheets</option>
-                <option value="hardware" ${selectedCategory === 'hardware' ? 'selected' : ''}>Hardware Fittings</option>
-                <option value="tools" ${selectedCategory === 'tools' ? 'selected' : ''}>Tools &amp; Kits</option>
-                <option value="chemicals" ${selectedCategory === 'chemicals' ? 'selected' : ''}>Chemicals</option>
-                <option value="others" ${selectedCategory === 'others' ? 'selected' : ''}>Others</option>
+                ${categories.map(cat => `<option value="${cat.name.toLowerCase()}" ${selectedCategory === cat.name.toLowerCase() ? 'selected' : ''}>${cat.name}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -284,6 +293,28 @@ function bindInventoryEvents(container) {
     lucide.createIcons();
   });
 
+  // Add Category Button
+  document.getElementById('add-cat-btn')?.addEventListener('click', async () => {
+    const inputEl = document.getElementById('new-cat-name');
+    if (!inputEl) return;
+    const catName = inputEl.value.trim();
+    if (!catName) return;
+
+    const categories = await db.getAll('inventory_categories');
+    if (categories.some(c => c.name.toLowerCase() === catName.toLowerCase())) {
+      app.showToast('Duplicate Category', 'Category name declaration already verified inside standard register registry.', 'warning');
+      return;
+    }
+
+    const newCat = { id: `cat-${Date.now()}`, name: catName };
+    await db.put('inventory_categories', newCat);
+    await sync.queueOperation('inventory_categories', 'insert', newCat);
+
+    app.showToast('Category Created', `Added "${catName}" to system categories.`, 'success');
+    inputEl.value = '';
+    renderInventory(container);
+  });
+
   // Category filter
   document.getElementById('inv-category-filter')?.addEventListener('change', async (e) => {
     selectedCategory = e.target.value;
@@ -343,11 +374,12 @@ function bindInventoryEvents(container) {
    ========================================================================== */
 function openRegisterItemModal(container) {
   const TODAY_STR = new Date().toISOString().split('T')[0];
-  const formHTML = `
-    <div style="display:flex; flex-direction:column; gap:16px;">
-      <div style="padding:8px 12px; background:rgba(59,130,246,0.08); border-left:3px solid var(--primary-color); border-radius:4px; font-size:12px; color:var(--text-secondary);">
-        Only <strong>Item Name</strong> is required. All other fields are optional.
-      </div>
+  db.getAll('inventory_categories').then(categories => {
+    const formHTML = `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="padding:8px 12px; background:rgba(59,130,246,0.08); border-left:3px solid var(--primary-color); border-radius:4px; font-size:12px; color:var(--text-secondary);">
+          Only <strong>Item Name</strong> is required. All other fields are optional.
+        </div>
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
         <div class="input-group" style="margin-bottom:0;">
@@ -364,11 +396,7 @@ function openRegisterItemModal(container) {
         <div class="input-group" style="margin-bottom:0;">
           <label>Category</label>
           <select id="new-item-category" class="form-control-noicon">
-            <option value="glass sheets">Glass Sheets</option>
-            <option value="hardware">Hardware Fittings</option>
-            <option value="tools">Tools &amp; Kits</option>
-            <option value="chemicals">Chemicals</option>
-            <option value="others">Others</option>
+            ${categories.map(cat => `<option value="${cat.name.toLowerCase()}">${cat.name}</option>`).join('')}
           </select>
         </div>
         <div class="input-group" style="margin-bottom:0;">
@@ -394,9 +422,9 @@ function openRegisterItemModal(container) {
         <span>Register Catalog Item</span>
       </button>
     </div>
-  `;
+    `;
 
-  app.openModal('Register Inventory Item', formHTML);
+    app.openModal('Register Inventory Item', formHTML);
 
   document.getElementById('register-item-submit-btn')?.addEventListener('click', async () => {
     const nameEl = document.getElementById('new-item-name');
@@ -437,6 +465,7 @@ function openRegisterItemModal(container) {
     app.showToast('Item Registered', `"${name}" added to inventory catalog.`, 'success');
     renderInventory(container);
   });
+  });
 }
 
 /* ==========================================================================
@@ -444,6 +473,7 @@ function openRegisterItemModal(container) {
    ========================================================================== */
 async function openEditItemModal(itemId, container) {
   const item = await db.get('inventory', itemId);
+  const categories = await db.getAll('inventory_categories');
   if (!item) return;
 
   const formHTML = `
@@ -467,11 +497,7 @@ async function openEditItemModal(itemId, container) {
         <div class="input-group" style="margin-bottom:0;">
           <label>Category</label>
           <select id="edit-item-category" class="form-control-noicon">
-            <option value="glass sheets" ${item.category === 'glass sheets' ? 'selected' : ''}>Glass Sheets</option>
-            <option value="hardware" ${item.category === 'hardware' ? 'selected' : ''}>Hardware Fittings</option>
-            <option value="tools" ${item.category === 'tools' ? 'selected' : ''}>Tools &amp; Kits</option>
-            <option value="chemicals" ${item.category === 'chemicals' ? 'selected' : ''}>Chemicals</option>
-            <option value="others" ${item.category === 'others' ? 'selected' : ''}>Others</option>
+            ${categories.map(cat => `<option value="${cat.name.toLowerCase()}" ${item.category === cat.name.toLowerCase() ? 'selected' : ''}>${cat.name}</option>`).join('')}
           </select>
         </div>
         <div class="input-group" style="margin-bottom:0;">
@@ -553,7 +579,8 @@ async function handleTransactionSubmit(container) {
   const itemId = document.getElementById('tx-item-select')?.value;
   const type = document.getElementById('tx-type-select')?.value || 'inward';
   const quantityRaw = document.getElementById('tx-quantity')?.value;
-  const date = document.getElementById('tx-date')?.value || new Date().toISOString().split('T')[0];
+  const rawDate = document.getElementById('tx-date')?.value || new Date().toISOString().split('T')[0];
+  const date = DateEngine.stringify(rawDate);
   const purpose = document.getElementById('tx-purpose')?.value?.trim() || 'General transaction';
   const quantity = parseInt(quantityRaw || '0');
 
@@ -682,6 +709,7 @@ function bindTableButtons() {
                 const field = e.target.getAttribute('data-field');
                 let val = e.target.value;
                 if (field === 'quantity') val = parseInt(val) || 0;
+                if (field === 'date') val = DateEngine.stringify(val);
 
                 const tx = await db.get('transactions', txId);
                 if (tx) {
@@ -729,6 +757,7 @@ function bindTableButtons() {
               const sourceOrPurpose = row.description || row.sourceOrPurpose || row.Description || '';
               let date = row.date || row.Date || new Date().toISOString().split('T')[0];
               if (date instanceof Date) date = date.toISOString().split('T')[0];
+              date = DateEngine.stringify(date);
               
               const newTx = { id: txId, itemId, type, quantity, sourceOrPurpose, date };
               await db.put('transactions', newTx);
@@ -771,7 +800,7 @@ function renderTxRows(txList) {
   if (txList.length === 0) return `<tr><td colspan="4" class="text-center muted-text" style="padding:20px;">No transactions found.</td></tr>`;
   return txList.map(t => `
     <tr>
-      <td><input type="date" class="form-control-noicon log-edit" data-id="${t.id}" data-field="date" value="${t.date}" style="padding:2px; font-size:11px; width:110px;"></td>
+      <td><input type="date" class="form-control-noicon log-edit" data-id="${t.id}" data-field="date" value="${DateEngine.toPickerFormat(t.date)}" style="padding:2px; font-size:11px; width:110px;"></td>
       <td>
         <select class="form-control-noicon log-edit" data-id="${t.id}" data-field="type" style="padding:2px; font-size:11px;">
           <option value="inward" ${t.type === 'inward' ? 'selected' : ''}>Inward</option>

@@ -12,6 +12,7 @@ import { renderProjects } from './modules/projects.js';
 import { renderHR } from './modules/hr.js';
 import { renderInventory } from './modules/inventory.js';
 import { renderGatePass } from './modules/gatepass.js';
+import { renderTools } from './modules/tools.js';
 import { renderUsers } from './modules/users.js';
 import { renderSettings } from './modules/settings.js';
 import { renderDatabaseExplorer } from './modules/database_explorer.js';
@@ -121,6 +122,47 @@ class AppCoordinator {
         if (this.currentUser) this.handleRoute();
       });
     }
+
+    // Google Sheets Automated Failover Sync Loop
+    this.startGoogleSheetsSyncLoop();
+  }
+
+  /**
+   * Google Sheets Automated Background Sync Loop
+   */
+  startGoogleSheetsSyncLoop() {
+    const runHourlySync = async () => {
+      const webhookUrl = localStorage.getItem('aeroglass_gsheet_webhook');
+      const isAutoSync = localStorage.getItem('aeroglass_gsheet_autosync') !== 'false';
+      
+      if (!isAutoSync || !webhookUrl) return;
+
+      try {
+        const inventory = await db.getAll('inventory');
+        const employees = await db.getAll('employees');
+        let tools = [];
+        try { tools = await db.getAll('tools_tracking'); } catch (e) {}
+
+        await fetch(webhookUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp: new Date().toISOString(),
+            inventory,
+            hr_employees: employees,
+            tools
+          })
+        });
+        console.log("Automated spreadsheet state shadow sync array succeeded.");
+      } catch (e) {
+        console.error("Hourly automated cloud sheet matrix serialization fail:", e);
+      }
+    };
+
+    // Run immediately on bootup, then check on hourly intervals (3600000 ms)
+    runHourlySync();
+    setInterval(runHourlySync, 3600000);
   }
 
   /**
@@ -178,6 +220,10 @@ class AppCoordinator {
         case 'gatepass':
           titleEl.textContent = 'Gate Pass Manager';
           await renderGatePass(workspaceView, routeParts);
+          break;
+        case 'tools':
+          titleEl.textContent = 'Tools Tracking Manager';
+          await renderTools(workspaceView);
           break;
         case 'users':
           titleEl.textContent = 'User Administration';
