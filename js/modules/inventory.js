@@ -666,6 +666,315 @@ function bindTableButtons() {
     });
   });
 
+  // Inspect Logs button → opens tran/* ==========================================================================
+   Log Import Studio Full-Screen Workspace (Version 6)
+   ========================================================================== */
+function openLogImportStudio(itemId, item, onCompleted) {
+  let studio = document.getElementById('log-import-studio');
+  if (!studio) {
+    studio = document.createElement('div');
+    studio.id = 'log-import-studio';
+    studio.className = 'log-import-studio-overlay';
+    document.body.appendChild(studio);
+  }
+  
+  // Trigger scale/fade in transitions
+  setTimeout(() => studio.classList.add('active'), 20);
+
+  let stagingLogs = [];
+
+  const parseAndFormatDate = (rawDate) => {
+    if (!rawDate) {
+      return SystemDateFormatter.toSystemFormat(new Date());
+    }
+    rawDate = String(rawDate).trim();
+    // If in MM-DD-YYYY or DD-MM-YYYY or MM/DD/YYYY format
+    if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(rawDate)) {
+      const parts = rawDate.replace(/\//g, '-').split('-');
+      const p1 = parts[0].padStart(2, '0');
+      const p2 = parts[1].padStart(2, '0');
+      const p3 = parts[2];
+      return `${p1}-${p2}-${p3}`;
+    }
+    
+    // If in YYYY-MM-DD format
+    if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawDate)) {
+      const parts = rawDate.replace(/\//g, '-').split('-');
+      const y = parts[0];
+      const m = parts[1].padStart(2, '0');
+      const d = parts[2].padStart(2, '0');
+      return `${m}-${d}-${y}`;
+    }
+    
+    // Use date engine fallback
+    return DateEngine.stringify(rawDate) || SystemDateFormatter.toSystemFormat(new Date());
+  };
+
+  const colsSafe = (val) => {
+    if (val === undefined || val === null) return '';
+    return String(val).trim();
+  };
+
+  const handleXlsxUpload = (file) => {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const buffer = evt.target.result;
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const parsed = [];
+        
+        // Skip header if first row has non-numeric columns
+        const startIndex = (rawRows[0] && isNaN(Date.parse(rawRows[0][0])) && isNaN(parseFloat(rawRows[0][4]))) ? 1 : 0;
+        
+        for (let i = startIndex; i < rawRows.length; i++) {
+          const cells = rawRows[i];
+          if (!cells || cells.length === 0) continue;
+          
+          let dateVal = cells[0] || '';
+          if (typeof dateVal === 'number') {
+            const dateObj = new Date((dateVal - (25567 + 2)) * 86400 * 1000);
+            dateVal = SystemDateFormatter.toSystemFormat(dateObj);
+          }
+          
+          parsed.push({
+            date: dateVal ? String(dateVal) : '',
+            hardwareName: String(cells[1] || '').trim().toUpperCase(),
+            partyName: String(cells[2] || '').trim(),
+            fitterName: String(cells[3] || '').trim(),
+            input: parseFloat(cells[4]) || 0,
+            output: parseFloat(cells[5]) || 0
+          });
+        }
+        
+        stagingLogs = [...stagingLogs, ...parsed];
+        renderStudioContent();
+        app.showToast('Excel Upload Map Success', `Staged ${parsed.length} spreadsheet records successfully.`, 'success');
+      } catch (err) {
+        console.error(err);
+        app.showToast('Upload Error', 'Failed to read spreadsheet.', 'danger');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handlePasteFromSheets = (e) => {
+    e.preventDefault();
+    const rawData = e.clipboardData.getData('text');
+    if (!rawData) return;
+    
+    const rows = rawData.split(/\r?\n/).filter(r => r.trim() !== '');
+    const parsed = rows.map(row => {
+      const cells = row.split('\t');
+      return {
+        date: colsSafe(cells[0]),
+        hardwareName: colsSafe(cells[1]).toUpperCase(),
+        partyName: colsSafe(cells[2]),
+        fitterName: colsSafe(cells[3]),
+        input: parseFloat(colsSafe(cells[4])) || 0,
+        output: parseFloat(colsSafe(cells[5])) || 0
+      };
+    });
+    
+    stagingLogs = [...stagingLogs, ...parsed];
+    renderStudioContent();
+    app.showToast('Clipboard Import Staging', `Loaded ${parsed.length} entries into staging log grid.`, 'success');
+  };
+
+  const renderStudioContent = () => {
+    studio.innerHTML = `
+      <div class="studio-header">
+        <div class="studio-title-area">
+          <i data-lucide="database" style="color: var(--accent-color); width: 24px; height: 24px;"></i>
+          <h2>Log Import Studio — ${item.name}</h2>
+        </div>
+        <div class="studio-controls">
+          <div class="file-upload-wrapper">
+            <span class="file-label">📥 Select .xlsx file:</span>
+            <input type="file" id="studio-xlsx-upload" accept=".xlsx" class="file-input-field" />
+          </div>
+          <button type="button" class="btn btn-secondary" id="studio-close-btn" style="padding:6px 14px;">CLOSE</button>
+        </div>
+      </div>
+      
+      <div class="studio-body" id="studio-paste-zone" tabindex="0">
+        ${stagingLogs.length === 0 ? `
+          <div class="studio-placeholder">
+            <i data-lucide="clipboard-paste" class="placeholder-icon"></i>
+            <p class="placeholder-main">Click here and press <b>Ctrl + V</b> to paste from Google Sheets / Excel</p>
+            <p class="placeholder-sub">Or select a `.xlsx` workbook via manual file uploader above</p>
+            <div class="placeholder-columns">
+              <span class="col-badge">Col 1: Date</span>
+              <span class="col-badge">Col 2: Hardware Name</span>
+              <span class="col-badge">Col 3: Party Name</span>
+              <span class="col-badge">Col 4: Fitter/Helper</span>
+              <span class="col-badge">Col 5: Input</span>
+              <span class="col-badge">Col 6: Output</span>
+            </div>
+          </div>
+        ` : `
+          <div class="studio-grid-wrapper">
+            <table class="studio-grid-table">
+              <thead>
+                <tr>
+                  <th style="width:60px; text-align:center;">S NO</th>
+                  <th>DATE</th>
+                  <th>HARDWARE NAME</th>
+                  <th>PARTY NAME</th>
+                  <th>FITTER / HELPER</th>
+                  <th style="text-align:center; color: #60a5fa;">INPUT</th>
+                  <th style="text-align:center; color: #fb923c;">OUTPUT</th>
+                  <th style="width:50px; text-align:center;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${stagingLogs.map((row, idx) => `
+                  <tr>
+                    <td class="text-center font-bold" style="color:var(--text-muted);">${idx + 1}</td>
+                    <td>
+                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="date" value="${row.date || ''}" />
+                    </td>
+                    <td>
+                      <input type="text" class="studio-cell-input studio-row-edit uppercase" data-idx="${idx}" data-field="hardwareName" value="${row.hardwareName || ''}" />
+                    </td>
+                    <td>
+                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="partyName" value="${row.partyName || ''}" />
+                    </td>
+                    <td>
+                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="fitterName" value="${row.fitterName || ''}" />
+                    </td>
+                    <td>
+                      <input type="number" class="studio-cell-input studio-row-edit text-center font-bold text-blue-500" data-idx="${idx}" data-field="input" value="${row.input}" />
+                    </td>
+                    <td>
+                      <input type="number" class="studio-cell-input studio-row-edit text-center font-bold text-red-500" data-idx="${idx}" data-field="output" value="${row.output}" />
+                    </td>
+                    <td class="text-center">
+                      <button type="button" class="studio-row-delete-btn" data-idx="${idx}">&times;</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>
+      
+      <div class="studio-footer">
+        <div class="studio-footer-stats">
+          Staged Rows: <strong>${stagingLogs.length}</strong>
+        </div>
+        <button type="button" class="btn btn-primary" id="studio-confirm-sync-btn" ${stagingLogs.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+          Confirm and Sync to Triple-Database Pipeline
+        </button>
+      </div>
+    `;
+    
+    lucide.createIcons();
+    bindStudioEvents();
+  };
+
+  const bindStudioEvents = () => {
+    const uploader = document.getElementById('studio-xlsx-upload');
+    uploader?.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleXlsxUpload(file);
+    });
+    
+    const pasteZone = document.getElementById('studio-paste-zone');
+    pasteZone?.addEventListener('paste', handlePasteFromSheets);
+    pasteZone?.focus();
+    
+    document.getElementById('studio-close-btn')?.addEventListener('click', () => {
+      studio.classList.remove('active');
+      setTimeout(() => studio.remove(), 300);
+    });
+    
+    studio.querySelectorAll('.studio-row-edit').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const idx = parseInt(e.target.getAttribute('data-idx'));
+        const field = e.target.getAttribute('data-field');
+        let val = e.target.value;
+        if (field === 'input' || field === 'output') {
+          val = parseFloat(val) || 0;
+        }
+        if (stagingLogs[idx]) {
+          stagingLogs[idx][field] = val;
+        }
+      });
+    });
+    
+    studio.querySelectorAll('.studio-row-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        stagingLogs.splice(idx, 1);
+        renderStudioContent();
+      });
+    });
+    
+    document.getElementById('studio-confirm-sync-btn')?.addEventListener('click', async () => {
+      if (stagingLogs.length === 0) return;
+      
+      let successCount = 0;
+      
+      for (let i = 0; i < stagingLogs.length; i++) {
+        const row = stagingLogs[i];
+        const formattedDate = parseAndFormatDate(row.date);
+        const hardwareName = (row.hardwareName || '').trim().toUpperCase();
+        const partyName = (row.partyName || '').trim();
+        const fitterName = (row.fitterName || '').trim();
+        const input = parseFloat(row.input) || 0;
+        const output = parseFloat(row.output) || 0;
+        
+        const quantity = input > 0 ? input : (output > 0 ? output : 0);
+        if (quantity <= 0) continue;
+        
+        const type = input > 0 ? 'inward' : 'outward';
+        const txId = `tx-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
+        const txRecord = {
+          id: txId,
+          itemId,
+          type,
+          quantity,
+          date: formattedDate,
+          sourceOrPurpose: 'Log Import Studio',
+          hardwareName,
+          partyName,
+          fitterName
+        };
+        
+        await db.put('transactions', txRecord);
+        await sync.queueOperation('transactions', 'insert', txRecord);
+        successCount++;
+      }
+      
+      if (successCount > 0) {
+        app.showToast('Import Studio Sync Complete', `Successfully committed ${successCount} transactions to Triple-Sync!`, 'success');
+        studio.classList.remove('active');
+        setTimeout(() => studio.remove(), 300);
+        if (onCompleted) {
+          await onCompleted();
+        }
+      } else {
+        app.showToast('Staging Sync Failure', 'No valid log rows with quantities detected.', 'danger');
+      }
+    });
+  };
+
+  renderStudioContent();
+}
+
+function bindTableButtons() {
+  // Edit button → opens Edit modal
+  document.querySelectorAll('.edit-item-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const itemId = btn.getAttribute('data-id');
+      const container = document.getElementById('view-content');
+      await openEditItemModal(itemId, container);
+    });
+  });
+
   // Inspect Logs button → opens transaction history modal
   document.querySelectorAll('.inspect-tx-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -685,14 +994,14 @@ function bindTableButtons() {
             </div>
             
             <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" id="modal-studio-open-btn" class="btn btn-primary" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px; font-weight:700;">
+                <i data-lucide="database" style="width:14px; height:14px;"></i>
+                <span>📂 Excel/Sheets Log Maintenance</span>
+              </button>
+              
               <button type="button" id="modal-fullscreen-toggle-btn" class="btn btn-secondary" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px;">
                 <i data-lucide="expand" style="width:14px; height:14px;"></i>
                 <span id="fullscreen-toggle-text">Open Big Screen</span>
-              </button>
-              
-              <button type="button" id="modal-bulk-paste-btn" class="btn btn-accent" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px; font-weight:700;">
-                <i data-lucide="clipboard" style="width:14px; height:14px;"></i>
-                <span id="bulk-paste-text">+ Paste Excel (Ctrl+V)</span>
               </button>
               
               <button type="button" id="modal-batch-delete-btn" class="btn btn-danger hidden" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px; font-weight:700;">
@@ -809,7 +1118,21 @@ function bindTableButtons() {
 
       renderModalLogs(itemTx);
 
-      // 1. Big Screen Mode toggle
+      // 1. Log Studio button
+      document.getElementById('modal-studio-open-btn')?.addEventListener('click', () => {
+        openLogImportStudio(itemId, item, async () => {
+          const newStock = await recalculateStock(itemId);
+          const ms = document.getElementById('modal-current-stock');
+          if (ms) ms.innerText = newStock + ' ' + item.unit;
+          
+          const allTxRefresh = await db.getAll('transactions');
+          itemTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+          renderModalLogs(itemTx);
+          populateItemsTable();
+        });
+      });
+
+      // 2. Big Screen Mode toggle
       const modalOverlay = document.getElementById('global-modal');
       const fsToggleBtn = document.getElementById('modal-fullscreen-toggle-btn');
       const fsToggleText = document.getElementById('fullscreen-toggle-text');
@@ -825,145 +1148,6 @@ function bindTableButtons() {
           fsIcon.setAttribute('data-lucide', isBig ? 'minimize' : 'expand');
           lucide.createIcons();
         }
-      });
-
-      // 2. Smart Excel Paste Engine (Bulk Entry)
-      const parseAndFormatDate = (rawDate) => {
-        if (!rawDate) {
-          return SystemDateFormatter.toSystemFormat(new Date());
-        }
-        rawDate = rawDate.trim();
-        // If in MM-DD-YYYY or DD-MM-YYYY or MM/DD/YYYY format
-        if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(rawDate)) {
-          const parts = rawDate.replace(/\//g, '-').split('-');
-          const p1 = parts[0].padStart(2, '0');
-          const p2 = parts[1].padStart(2, '0');
-          const p3 = parts[2];
-          return `${p1}-${p2}-${p3}`;
-        }
-        
-        // If in YYYY-MM-DD format
-        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawDate)) {
-          const parts = rawDate.replace(/\//g, '-').split('-');
-          const y = parts[0];
-          const m = parts[1].padStart(2, '0');
-          const d = parts[2].padStart(2, '0');
-          return `${m}-${d}-${y}`;
-        }
-        
-        // Use date engine fallback
-        return DateEngine.stringify(rawDate) || SystemDateFormatter.toSystemFormat(new Date());
-      };
-
-      const bulkPasteBtn = document.getElementById('modal-bulk-paste-btn');
-      const bulkPasteText = document.getElementById('bulk-paste-text');
-      
-      bulkPasteBtn?.addEventListener('click', () => {
-        let txt = document.getElementById('bulk-paste-textarea');
-        if (!txt) {
-          txt = document.createElement('textarea');
-          txt.id = 'bulk-paste-textarea';
-          txt.style.position = 'absolute';
-          txt.style.left = '-9999px';
-          txt.style.top = '0';
-          txt.style.opacity = '0';
-          document.body.appendChild(txt);
-        }
-        
-        txt.focus();
-        
-        if (bulkPasteText) {
-          bulkPasteText.textContent = 'Press Ctrl+V Now...';
-        }
-        bulkPasteBtn.style.animation = 'pulse-green 1s infinite';
-        
-        txt.addEventListener('paste', async (e) => {
-          e.preventDefault();
-          const text = e.clipboardData.getData('text');
-          
-          if (bulkPasteText) {
-            bulkPasteText.textContent = '+ Paste Excel (Ctrl+V)';
-          }
-          bulkPasteBtn.style.animation = '';
-          
-          txt.value = '';
-          txt.blur();
-          
-          if (!text || text.trim() === '') {
-            app.showToast('Empty Clipboard', 'No text found in clipboard to paste.', 'warning');
-            return;
-          }
-          
-          const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
-          if (rows.length === 0) {
-            app.showToast('No Data', 'No parseable lines detected in pasted clipboard.', 'warning');
-            return;
-          }
-          
-          // Slice up to exactly 10 rows maximum to prevent table overflow
-          const batch = rows.slice(0, 10);
-          let successCount = 0;
-          
-          for (let idx = 0; idx < batch.length; idx++) {
-            const cols = batch[idx].split('\t'); // Excel uses tabs
-            
-            // Expected columns mapping logic:
-            // Col 1: Date (MM-DD-YYYY)
-            const rawDate = cols[0] || '';
-            const formattedDate = parseAndFormatDate(rawDate);
-            
-            // Col 2: Hardware Name (sanitized to uppercase)
-            const hardwareName = (cols[1] || '').trim().toUpperCase();
-            
-            // Col 3: Party Name
-            const partyName = (cols[2] || '').trim();
-            
-            // Col 4: Fitter / Helper
-            const fitterName = (cols[3] || '').trim();
-            
-            // Col 5 & 6: Input / Output (numeric validation)
-            const input = parseFloat(cols[4]) || 0;
-            const output = parseFloat(cols[5]) || 0;
-            
-            const quantity = input > 0 ? input : (output > 0 ? output : 0);
-            if (quantity <= 0) continue; // Skip entries without valid amounts
-            
-            const type = input > 0 ? 'inward' : 'outward';
-            const txId = `tx-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
-            const txRecord = {
-              id: txId,
-              itemId,
-              type,
-              quantity,
-              date: formattedDate,
-              sourceOrPurpose: 'Excel Bulk Import',
-              hardwareName,
-              partyName,
-              fitterName
-            };
-            
-            await db.put('transactions', txRecord);
-            await sync.queueOperation('transactions', 'insert', txRecord);
-            successCount++;
-          }
-          
-          if (successCount > 0) {
-            app.showToast('Bulk Paste Success', `Successfully imported ${successCount} rows from clipboard.`, 'success');
-            
-            // Recalculate stock
-            const newStock = await recalculateStock(itemId);
-            const ms = document.getElementById('modal-current-stock');
-            if (ms) ms.innerText = newStock + ' ' + item.unit;
-            
-            // Refresh modal lists
-            const allTxRefresh = await db.getAll('transactions');
-            itemTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
-            renderModalLogs(itemTx);
-            populateItemsTable();
-          } else {
-            app.showToast('Paste Failed', 'No valid rows with positive quantities could be parsed. Check column mapping (Date, Hardware, Party, Fitter, Input, Output).', 'danger');
-          }
-        }, { once: true });
       });
 
       // 3. Multi-Select & Batch Deletion
@@ -1046,15 +1230,15 @@ function bindTableButtons() {
               count++;
             }
             if (count > 0) {
-               const newStock = await recalculateStock(itemId);
-               const ms = document.getElementById('modal-current-stock');
-               if (ms) ms.innerText = newStock + ' ' + item.unit;
-               app.showToast('Logs Imported', `Imported ${count} records.`, 'success');
-               
-               const allTxRef = await db.getAll('transactions');
-               itemTx = allTxRef.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
-               renderModalLogs(itemTx);
-               populateItemsTable();
+                const newStock = await recalculateStock(itemId);
+                const ms = document.getElementById('modal-current-stock');
+                if (ms) ms.innerText = newStock + ' ' + item.unit;
+                app.showToast('Logs Imported', `Imported ${count} records.`, 'success');
+                
+                const allTxRef = await db.getAll('transactions');
+                itemTx = allTxRef.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+                renderModalLogs(itemTx);
+                populateItemsTable();
             }
             e.target.value = '';
           }
