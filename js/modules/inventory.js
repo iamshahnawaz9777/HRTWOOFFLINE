@@ -671,14 +671,18 @@ function openLogImportStudio(itemId, item, onCompleted) {
   // Trigger scale/fade in transitions
   setTimeout(() => studio.classList.add('active'), 20);
 
-  let stagingLogs = [];
+  // Pre-populate 12 empty grid rows to display an active spreadsheet right away
+  let stagingLogs = Array(12).fill(null).map(() => ({
+    date: '', hardwareName: '', partyName: '', fitterName: '', input: '', output: ''
+  }));
+  
+  let activeCell = { row: 0, col: 0 };
 
   const parseAndFormatDate = (rawDate) => {
     if (!rawDate) {
       return SystemDateFormatter.toSystemFormat(new Date());
     }
     rawDate = String(rawDate).trim();
-    // If in MM-DD-YYYY or DD-MM-YYYY or MM/DD/YYYY format
     if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(rawDate)) {
       const parts = rawDate.replace(/\//g, '-').split('-');
       const p1 = parts[0].padStart(2, '0');
@@ -686,8 +690,6 @@ function openLogImportStudio(itemId, item, onCompleted) {
       const p3 = parts[2];
       return `${p1}-${p2}-${p3}`;
     }
-    
-    // If in YYYY-MM-DD format
     if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawDate)) {
       const parts = rawDate.replace(/\//g, '-').split('-');
       const y = parts[0];
@@ -695,8 +697,6 @@ function openLogImportStudio(itemId, item, onCompleted) {
       const d = parts[2].padStart(2, '0');
       return `${m}-${d}-${y}`;
     }
-    
-    // Use date engine fallback
     return DateEngine.stringify(rawDate) || SystemDateFormatter.toSystemFormat(new Date());
   };
 
@@ -710,184 +710,218 @@ function openLogImportStudio(itemId, item, onCompleted) {
     reader.onload = (evt) => {
       try {
         const buffer = evt.target.result;
-        const workbook = XLSX.read(buffer, { type: 'array' });
+        const workbook = XLSX.read(buffer, { type: 'binary' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-        const parsed = [];
+        const parsedJson = XLSX.utils.sheet_to_json(sheet, { header: 1 });
         
-        // Skip header if first row has non-numeric columns
-        const startIndex = (rawRows[0] && isNaN(Date.parse(rawRows[0][0])) && isNaN(parseFloat(rawRows[0][4]))) ? 1 : 0;
+        const formatted = parsedJson.slice(1).map(cells => ({
+          date: cells[0] || '',
+          hardwareName: String(cells[1] || '').trim().toUpperCase(),
+          partyName: String(cells[2] || '').trim(),
+          fitterName: String(cells[3] || '').trim(),
+          input: cells[4] || '',
+          output: cells[5] || ''
+        })).filter(i => i.hardwareName || i.date);
         
-        for (let i = startIndex; i < rawRows.length; i++) {
-          const cells = rawRows[i];
-          if (!cells || cells.length === 0) continue;
-          
-          let dateVal = cells[0] || '';
-          if (typeof dateVal === 'number') {
-            const dateObj = new Date((dateVal - (25567 + 2)) * 86400 * 1000);
-            dateVal = SystemDateFormatter.toSystemFormat(dateObj);
-          }
-          
-          parsed.push({
-            date: dateVal ? String(dateVal) : '',
-            hardwareName: String(cells[1] || '').trim().toUpperCase(),
-            partyName: String(cells[2] || '').trim(),
-            fitterName: String(cells[3] || '').trim(),
-            input: parseFloat(cells[4]) || 0,
-            output: parseFloat(cells[5]) || 0
-          });
+        if (formatted.length > 0) {
+          stagingLogs = formatted;
+        } else {
+          stagingLogs = Array(12).fill(null).map(() => ({
+            date: '', hardwareName: '', partyName: '', fitterName: '', input: '', output: ''
+          }));
         }
-        
-        stagingLogs = [...stagingLogs, ...parsed];
         renderStudioContent();
-        app.showToast('Excel Upload Map Success', `Staged ${parsed.length} spreadsheet records successfully.`, 'success');
+        app.showToast('Excel Upload Map Success', `Staged ${formatted.length} spreadsheet records successfully.`, 'success');
       } catch (err) {
         console.error(err);
         app.showToast('Upload Error', 'Failed to read spreadsheet.', 'danger');
       }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsBinaryString(file);
   };
 
   const handlePasteFromSheets = (e) => {
     e.preventDefault();
+    e.stopPropagation();
+
     const rawData = e.clipboardData.getData('text');
     if (!rawData) return;
     
+    // Isolate lines cleanly
     const rows = rawData.split(/\r?\n/).filter(r => r.trim() !== '');
-    const parsed = rows.map(row => {
+    const parsedData = rows.map(row => {
       const cells = row.split('\t');
       return {
         date: colsSafe(cells[0]),
         hardwareName: colsSafe(cells[1]).toUpperCase(),
         partyName: colsSafe(cells[2]),
         fitterName: colsSafe(cells[3]),
-        input: parseFloat(colsSafe(cells[4])) || 0,
-        output: parseFloat(colsSafe(cells[5])) || 0
+        input: cells[4] !== undefined ? colsSafe(cells[4]) : '',
+        output: cells[5] !== undefined ? colsSafe(cells[5]) : '',
       };
     });
     
-    stagingLogs = [...stagingLogs, ...parsed];
+    // Splice data directly starting at user's currently focused grid cell location
+    let dataIndex = 0;
+    for (let i = activeCell.row; i < stagingLogs.length && dataIndex < parsedData.length; i++) {
+      if (parsedData[dataIndex]) {
+        stagingLogs[i] = parsedData[dataIndex];
+      }
+      dataIndex++;
+    }
+
+    // If copy payload is larger than remaining default space, append items
+    while (dataIndex < parsedData.length) {
+      stagingLogs.push(parsedData[dataIndex]);
+      dataIndex++;
+    }
+
     renderStudioContent();
-    app.showToast('Clipboard Import Staging', `Loaded ${parsed.length} entries into staging log grid.`, 'success');
+    app.showToast('Clipboard Import Staging', `Loaded ${parsedData.length} entries into staging log grid.`, 'success');
+  };
+
+  const clearGridData = () => {
+    stagingLogs = Array(12).fill(null).map(() => ({
+      date: '', hardwareName: '', partyName: '', fitterName: '', input: '', output: ''
+    }));
+    activeCell = { row: 0, col: 0 };
+    renderStudioContent();
   };
 
   const renderStudioContent = () => {
     studio.innerHTML = `
-      <div class="studio-header">
-        <div class="studio-title-area">
-          <i data-lucide="database" style="color: var(--accent-color); width: 24px; height: 24px;"></i>
-          <h2>Log Import Studio — ${item.name}</h2>
+      <div class="studio-header" style="display:flex; justify-content:space-between; align-items:center; background:white; padding:16px; border-radius:12px; border:1px solid #e5e7eb; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+        <div>
+          <h2 style="font-size:14px; font-weight:900; text-transform:uppercase; color:#1f2937; letter-spacing:0.05em; margin:0; font-family:var(--font-heading);">Log Spreadsheet Interface</h2>
+          <p style="font-size:11px; color:#9ca3af; margin:4px 0 0 0;">Select any cell area below and press <b>Ctrl + V</b> to instantly dump sheet tracks.</p>
         </div>
-        <div class="studio-controls">
-          <div class="file-upload-wrapper">
-            <span class="file-label">📥 Select .xlsx file:</span>
-            <input type="file" id="studio-xlsx-upload" accept=".xlsx" class="file-input-field" />
-          </div>
-          <button type="button" class="btn btn-secondary" id="studio-close-btn" style="padding:6px 14px;">CLOSE</button>
+        
+        <div style="display:flex; align-items:center; gap:16px;">
+          <label style="display:flex; align-items:center; gap:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:6px 12px; cursor:pointer; font-size:12px; font-weight:600; color:#4b5563;">
+            📥 Upload .xlsx File
+            <input type="file" id="studio-xlsx-upload" accept=".xlsx" style="display:none;" />
+          </label>
+          
+          <button type="button" id="studio-clear-btn" style="background:transparent; border:none; font-size:12px; color:#6b7280; font-weight:500; cursor:pointer;">
+            Reset Sheet
+          </button>
+          
+          <div style="height:16px; width:1px; background:#e5e7eb;"></div>
+          
+          <button type="button" id="studio-close-btn" style="background:transparent; border:none; color:#ef4444; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; cursor:pointer;">
+            Close Studio
+          </button>
         </div>
       </div>
       
-      <div class="studio-body" id="studio-paste-zone" tabindex="0">
-        ${stagingLogs.length === 0 ? `
-          <div class="studio-placeholder">
-            <i data-lucide="clipboard-paste" class="placeholder-icon"></i>
-            <p class="placeholder-main">Click here and press <b>Ctrl + V</b> to paste from Google Sheets / Excel</p>
-            <p class="placeholder-sub">Or select a `.xlsx` workbook via manual file uploader above</p>
-            <div class="placeholder-columns">
-              <span class="col-badge">Col 1: Date</span>
-              <span class="col-badge">Col 2: Hardware Name</span>
-              <span class="col-badge">Col 3: Party Name</span>
-              <span class="col-badge">Col 4: Fitter/Helper</span>
-              <span class="col-badge">Col 5: Input</span>
-              <span class="col-badge">Col 6: Output</span>
-            </div>
-          </div>
-        ` : `
-          <div class="studio-grid-wrapper">
-            <table class="studio-grid-table">
-              <thead>
-                <tr>
-                  <th style="width:60px; text-align:center;">S NO</th>
-                  <th>DATE</th>
-                  <th>HARDWARE NAME</th>
-                  <th>PARTY NAME</th>
-                  <th>FITTER / HELPER</th>
-                  <th style="text-align:center; color: #60a5fa;">INPUT</th>
-                  <th style="text-align:center; color: #fb923c;">OUTPUT</th>
-                  <th style="width:50px; text-align:center;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${stagingLogs.map((row, idx) => `
-                  <tr>
-                    <td class="text-center font-bold" style="color:var(--text-muted);">${idx + 1}</td>
-                    <td>
-                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="date" value="${row.date || ''}" />
-                    </td>
-                    <td>
-                      <input type="text" class="studio-cell-input studio-row-edit uppercase" data-idx="${idx}" data-field="hardwareName" value="${row.hardwareName || ''}" />
-                    </td>
-                    <td>
-                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="partyName" value="${row.partyName || ''}" />
-                    </td>
-                    <td>
-                      <input type="text" class="studio-cell-input studio-row-edit" data-idx="${idx}" data-field="fitterName" value="${row.fitterName || ''}" />
-                    </td>
-                    <td>
-                      <input type="number" class="studio-cell-input studio-row-edit text-center font-bold text-blue-500" data-idx="${idx}" data-field="input" value="${row.input}" />
-                    </td>
-                    <td>
-                      <input type="number" class="studio-cell-input studio-row-edit text-center font-bold text-red-500" data-idx="${idx}" data-field="output" value="${row.output}" />
-                    </td>
-                    <td class="text-center">
-                      <button type="button" class="studio-row-delete-btn" data-idx="${idx}">&times;</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
+      <div class="studio-body custom-spreadsheet-scroll" id="studio-paste-zone" tabindex="0" style="flex-grow:1; background:white; border:1px solid #e5e7eb; border-radius:12px; overflow:auto; outline:none; box-shadow:inset 0 2px 4px rgba(0,0,0,0.02);">
+        <table style="width:100%; text-align:left; border-collapse:collapse; table-layout:fixed; font-size:11px;">
+          <thead style="background:#F1F3F4; color:#4b5563; position:sticky; top:0; font-weight:normal; text-align:center; z-index:10;">
+            <tr style="height:24px; border-bottom:1px solid #d1d5db;">
+              <th style="width:40px; background:#E8EAED; border-right:1px solid #d1d5db;"></th>
+              <th style="width:128px; font-weight:normal; border-right:1px solid #d1d5db; font-size:12px;">A (Date)</th>
+              <th style="width:224px; font-weight:normal; border-right:1px solid #d1d5db; font-size:12px;">B (Hardware Name)</th>
+              <th style="width:176px; font-weight:normal; border-right:1px solid #d1d5db; font-size:12px;">C (Party Name)</th>
+              <th style="width:176px; font-weight:normal; border-right:1px solid #d1d5db; font-size:12px;">D (Fitter Name)</th>
+              <th style="width:96px; font-weight:normal; color:#2563eb; border-right:1px solid #d1d5db; font-size:12px;">E (Input)</th>
+              <th style="width:96px; font-weight:normal; color:#dc2626; border-right:1px solid #d1d5db; font-size:12px;">F (Output)</th>
+              <th style="width:auto; background:#F1F3F4;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stagingLogs.map((row, idx) => {
+              const isDateActive = activeCell.row === idx && activeCell.col === 0;
+              const isHwActive = activeCell.row === idx && activeCell.col === 1;
+              const isPartyActive = activeCell.row === idx && activeCell.col === 2;
+              const isFitterActive = activeCell.row === idx && activeCell.col === 3;
+              const isInputActive = activeCell.row === idx && activeCell.col === 4;
+              const isOutputActive = activeCell.row === idx && activeCell.col === 5;
+              
+              const activeStyle = 'box-shadow: inset 0 0 0 2px #3b82f6; background-color: rgba(239,246,255,0.5);';
+              
+              return `
+              <tr style="height:28px; border-bottom:1px solid #e5e7eb; transition:background-color 0.15s;" onmouseover="this.style.backgroundColor='rgba(249,250,251,0.4)'" onmouseout="this.style.backgroundColor='transparent'">
+                <td style="background:#F1F3F4; text-align:center; font-size:10px; color:#9ca3af; font-family:monospace; position:sticky; left:0; border-right:1px solid #d1d5db; user-select:none;">
+                  ${idx + 1}
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isDateActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="0">
+                  <input type="text" class="studio-row-edit" data-idx="${idx}" data-field="date" value="${row.date || ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; font-family:monospace; color:#1f2937;" />
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isHwActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="1">
+                  <input type="text" class="studio-row-edit uppercase" data-idx="${idx}" data-field="hardwareName" value="${row.hardwareName || ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; text-transform:uppercase; font-weight:bold; color:#111827;" />
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isPartyActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="2">
+                  <input type="text" class="studio-row-edit" data-idx="${idx}" data-field="partyName" value="${row.partyName || ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; color:#374151;" />
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isFitterActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="3">
+                  <input type="text" class="studio-row-edit" data-idx="${idx}" data-field="fitterName" value="${row.fitterName || ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; color:#4b5563;" />
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isInputActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="4">
+                  <input type="text" class="studio-row-edit" data-idx="${idx}" data-field="input" value="${row.input !== '' && row.input !== 0 ? row.input : ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; color:#1d4ed8; font-weight:bold; text-align:center;" />
+                </td>
+                <td style="padding:4px; border-right:1px solid #e5e7eb; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; ${isOutputActive ? activeStyle : ''}" class="studio-cell" data-row="${idx}" data-col="5">
+                  <input type="text" class="studio-row-edit" data-idx="${idx}" data-field="output" value="${row.output !== '' && row.output !== 0 ? row.output : ''}" style="width:100%; height:100%; background:transparent; border:none; outline:none; color:#dc2626; font-weight:bold; text-align:center;" />
+                </td>
+                <td style="background:white;"></td>
+              </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
       </div>
       
-      <div class="studio-footer">
-        <div class="studio-footer-stats">
-          Staged Rows: <strong>${stagingLogs.length}</strong>
-        </div>
-        <button type="button" class="btn btn-primary" id="studio-confirm-sync-btn" ${stagingLogs.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
-          Confirm and Sync to Triple-Database Pipeline
+      <div class="studio-footer" style="margin-top:16px; display:flex; justify-content:space-between; align-items:center; background:white; padding:12px; border-radius:12px; border:1px solid #e5e7eb; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+        <span style="font-size:11px; color:#9ca3af; font-weight:500;">
+          Staging Register Status: ${stagingLogs.filter(r => r.date || r.hardwareName || r.partyName).length} active log line elements items parsed.
+        </span>
+        <button type="button" id="studio-confirm-sync-btn" style="background:#2563eb; color:white; font-weight:bold; font-size:12px; padding:10px 32px; border-radius:8px; border:none; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.1); transition:all 0.2s;">
+          Commit All Staged Logs to Multi-Database Pipeline
         </button>
       </div>
     `;
     
-    lucide.createIcons();
     bindStudioEvents();
   };
 
   const bindStudioEvents = () => {
-    const uploader = document.getElementById('studio-xlsx-upload');
-    uploader?.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) handleXlsxUpload(file);
-    });
-    
+    // Re-focus the paste zone after rendering (similar to React useEffect)
     const pasteZone = document.getElementById('studio-paste-zone');
-    pasteZone?.addEventListener('paste', handlePasteFromSheets);
-    pasteZone?.focus();
+    if (pasteZone) pasteZone.focus();
+
+    const uploader = document.getElementById('studio-xlsx-upload');
+    uploader?.addEventListener('change', handleXlsxUpload);
     
+    pasteZone?.addEventListener('paste', handlePasteFromSheets);
+    
+    document.getElementById('studio-clear-btn')?.addEventListener('click', clearGridData);
+
     document.getElementById('studio-close-btn')?.addEventListener('click', () => {
       studio.classList.remove('active');
       setTimeout(() => studio.remove(), 300);
     });
     
+    // Cell active state tracking
+    studio.querySelectorAll('.studio-cell').forEach(cell => {
+      cell.addEventListener('mousedown', (e) => {
+        const row = parseInt(cell.getAttribute('data-row'));
+        const col = parseInt(cell.getAttribute('data-col'));
+        if (activeCell.row !== row || activeCell.col !== col) {
+          activeCell = { row, col };
+          renderStudioContent(); // Re-render to show active styling
+        }
+      });
+    });
+
+    // Two-way binding for inputs
     studio.querySelectorAll('.studio-row-edit').forEach(input => {
       input.addEventListener('input', (e) => {
         const idx = parseInt(e.target.getAttribute('data-idx'));
         const field = e.target.getAttribute('data-field');
         let val = e.target.value;
         if (field === 'input' || field === 'output') {
-          val = parseFloat(val) || 0;
+          val = val === '' ? '' : (parseFloat(val) || 0);
+        } else if (field === 'hardwareName') {
+          val = val.toUpperCase();
         }
         if (stagingLogs[idx]) {
           stagingLogs[idx][field] = val;
@@ -895,21 +929,19 @@ function openLogImportStudio(itemId, item, onCompleted) {
       });
     });
     
-    studio.querySelectorAll('.studio-row-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const idx = parseInt(btn.getAttribute('data-idx'));
-        stagingLogs.splice(idx, 1);
-        renderStudioContent();
-      });
-    });
-    
+    // Sync Button
     document.getElementById('studio-confirm-sync-btn')?.addEventListener('click', async () => {
-      if (stagingLogs.length === 0) return;
+      const realPayload = stagingLogs.filter(row => row.date || row.hardwareName || row.partyName);
+      
+      if (realPayload.length === 0) {
+        app.showToast('Empty Staging', 'Spreadsheet staging space contains no data to record!', 'warning');
+        return;
+      }
       
       let successCount = 0;
       
-      for (let i = 0; i < stagingLogs.length; i++) {
-        const row = stagingLogs[i];
+      for (let i = 0; i < realPayload.length; i++) {
+        const row = realPayload[i];
         const formattedDate = parseAndFormatDate(row.date);
         const hardwareName = (row.hardwareName || '').trim().toUpperCase();
         const partyName = (row.partyName || '').trim();
@@ -941,6 +973,7 @@ function openLogImportStudio(itemId, item, onCompleted) {
       
       if (successCount > 0) {
         app.showToast('Import Studio Sync Complete', `Successfully committed ${successCount} transactions to Triple-Sync!`, 'success');
+        clearGridData();
         studio.classList.remove('active');
         setTimeout(() => studio.remove(), 300);
         if (onCompleted) {
