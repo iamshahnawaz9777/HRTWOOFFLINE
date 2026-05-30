@@ -429,9 +429,11 @@ class AppCoordinator {
 
   closeModal() {
     this.modalOverlay.classList.remove('show');
+    this.modalOverlay.classList.remove('big-screen-mode');
     // Re-hide after CSS transition completes (300ms)
     setTimeout(() => {
       this.modalOverlay.classList.add('hidden');
+      this.modalOverlay.classList.remove('big-screen-mode'); // Double safeguard
       this.modalBody.innerHTML = '';
       this.modalContainer.style.maxWidth = '650px';
     }, 320);

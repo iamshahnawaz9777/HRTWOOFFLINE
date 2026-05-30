@@ -2314,17 +2314,212 @@ html[data-theme="light"] .db-sync-widget {
 .inv-log-table thead th:last-child {
   border-right: none;
 }
+  animation: appFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 0.3s;
+}
+
+@keyframes appFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sidebar footer with logout */
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.sidebar-footer-actions .logout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-footer-actions .logout-btn:hover {
+  background: var(--danger-glow);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.sidebar-footer-actions .logout-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+/* ==========================================================================
+   Triple-Database Sync Status Widget
+   ========================================================================== */
+.db-sync-widget {
+  margin: 16px 16px 0;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-normal);
+}
+
+.db-sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.db-sync-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.db-sync-master-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  transition: background 0.3s ease;
+}
+
+.db-sync-master-dot.all-online {
+  background: var(--success);
+  animation: pulse-sync 1.5s infinite alternate;
+}
+
+.db-sync-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.db-sync-item-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.db-sync-item-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.db-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  transition: background 0.3s ease;
+}
+
+.db-sync-dot.online {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.db-sync-dot.offline {
+  background: var(--danger);
+  box-shadow: 0 0 4px var(--danger-glow);
+}
+
+.db-sync-status-text {
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.db-sync-item-status .db-sync-dot.online + .db-sync-status-text {
+  color: var(--success);
+}
+
+.db-sync-item-status .db-sync-dot.offline + .db-sync-status-text {
+  color: var(--danger);
+}
+
+/* Light theme overrides for sync widget */
+html[data-theme="light"] .db-sync-widget {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+/* Collapsed sidebar: hide sync widget */
+.app-layout.collapsed .db-sync-widget {
+  display: none !important;
+}
+
+/* ==========================================================================
+   Overhauled Inventory Log Table (Register Style)
+   ========================================================================== */
+.inv-log-table-wrapper {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.inv-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.inv-log-table thead {
+  background: #000000;
+}
+
+.inv-log-table thead th {
+  padding: 12px 14px;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-right: 1px solid #333;
+  white-space: nowrap;
+}
+
+.inv-log-table thead th:last-child {
+  border-right: none;
+}
 
 .inv-log-table thead th.output-col {
   color: #f87171;
 }
 
 .inv-log-table tbody {
-  background: #B3B3B3;
+  background: #F9F9FB;
 }
 
 .inv-log-table tbody tr {
-  border-bottom: 1px solid #000;
+  border-bottom: 1px solid #555555;
 }
 
 .inv-log-table tbody tr:last-child {
@@ -2333,10 +2528,10 @@ html[data-theme="light"] .db-sync-widget {
 
 .inv-log-table tbody td {
   padding: 10px 14px;
-  color: #000000;
+  color: #1A1A1A;
   font-weight: 600;
   font-size: 12px;
-  border-right: 1px solid #000;
+  border-right: 1px solid #555555;
 }
 
 .inv-log-table tbody td:last-child {
@@ -2472,4 +2667,54 @@ html[data-theme="light"] .db-sync-widget {
   overflow-x: auto;
   border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   Big Screen Mode / Full-Screen Log Studio for Auditing
+   ========================================================================== */
+.modal-overlay.big-screen-mode {
+  padding: 0 !important;
+  background: rgba(0, 0, 0, 0.8) !important;
+}
+
+.modal-overlay.big-screen-mode .modal-container {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  transform: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  display: flex;
+  flex-direction: column;
+  background: #F4F5F7 !important; /* Premium light grey workspace background */
+}
+
+.modal-overlay.big-screen-mode .modal-header {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid #333333 !important;
+  padding: 16px 24px !important;
+}
+
+.modal-overlay.big-screen-mode .modal-header h3 {
+  color: #ffffff !important;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.modal-overlay.big-screen-mode .modal-close {
+  color: #ffffff !important;
+  opacity: 0.8;
+}
+
+.modal-overlay.big-screen-mode .modal-close:hover {
+  opacity: 1;
+}
+
+.modal-overlay.big-screen-mode .modal-body {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 24px !important;
 }

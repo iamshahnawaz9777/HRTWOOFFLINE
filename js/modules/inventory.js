@@ -675,95 +675,340 @@ function bindTableButtons() {
       let itemTx = allTx.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
 
       const modalHTML = `
-        <div style="display:flex; flex-direction:column; gap:14px;">
-          <!-- Item summary bar -->
-          <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:13px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px;">
-            <span><strong>Code:</strong> <code>${item.code}</code></span>
-            <span><strong>Unit:</strong> ${item.unit}</span>
-            <span><strong>Current Stock:</strong> <span class="primary-text font-bold" id="modal-current-stock">${item.currentStock} ${item.unit}</span></span>
+        <div style="display:flex; flex-direction:column; gap:14px; height: 100%;">
+          <!-- Item summary bar + Control actions -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:13px; padding:12px; background:rgba(0,0,0,0.1); border-radius:8px; flex-grow:1;">
+              <span><strong>Code:</strong> <code>${item.code}</code></span>
+              <span><strong>Unit:</strong> ${item.unit}</span>
+              <span><strong>Current Stock:</strong> <span class="primary-text font-bold" id="modal-current-stock">${item.currentStock} ${item.unit}</span></span>
+            </div>
+            
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" id="modal-fullscreen-toggle-btn" class="btn btn-secondary" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px;">
+                <i data-lucide="expand" style="width:14px; height:14px;"></i>
+                <span id="fullscreen-toggle-text">Open Big Screen</span>
+              </button>
+              
+              <button type="button" id="modal-bulk-paste-btn" class="btn btn-accent" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px; font-weight:700;">
+                <i data-lucide="clipboard" style="width:14px; height:14px;"></i>
+                <span id="bulk-paste-text">+ Paste Excel (Ctrl+V)</span>
+              </button>
+              
+              <button type="button" id="modal-batch-delete-btn" class="btn btn-danger hidden" style="padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:6px; font-weight:700;">
+                <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
+                <span id="batch-delete-modal-text">Delete Selected (0)</span>
+              </button>
+            </div>
           </div>
 
           <!-- Log Management Tools -->
-          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--glass-border); padding-bottom:10px;">
-             <div>
-                <label style="font-size:11px; display:block; margin-bottom:4px;" class="muted-text">Import Log CSV</label>
+          <div style="display:flex; gap:14px; align-items:center; justify-content:space-between; flex-wrap:wrap; border-bottom:1px solid var(--glass-border); padding-bottom:10px;">
+             <div style="display:flex; align-items:center; gap:12px;">
+                <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">📂 File Tools:</label>
                 <input type="file" id="modal-log-import" accept=".csv" style="font-size:11px; max-width:180px;">
+                <button type="button" id="modal-log-export-btn" class="btn btn-secondary" style="padding:4px 10px; font-size:11px;">
+                  <i data-lucide="download" style="width:14px; height:14px;"></i> Download Logs
+                </button>
              </div>
-             <button type="button" id="modal-log-export-btn" class="btn btn-secondary" style="padding:4px 10px; font-size:11px; margin-top:16px;">
-               <i data-lucide="download"></i> Download Logs
-             </button>
+             
+             <!-- Search transactions -->
+             <div class="search-input-wrapper" style="min-width:240px; margin-bottom:0;">
+               <i data-lucide="search" style="width:14px; height:14px;"></i>
+               <input type="text" id="tx-log-search" placeholder="Filter by date, type, supplier..." class="form-control" style="padding-top:6px; padding-bottom:6px; font-size:11px;">
+             </div>
           </div>
 
-          <!-- Search transactions -->
-          <div class="search-input-wrapper">
-            <i data-lucide="search"></i>
-            <input type="text" id="tx-log-search" placeholder="Filter by date, type, supplier..." class="form-control" style="padding-top:7px; padding-bottom:7px; font-size:12px;">
-          </div>
-
-          <div style="max-height:380px; overflow-y:auto;">
-            <div class="inv-log-table-wrapper">
-              <table class="inv-log-table" id="tx-log-table">
-                <thead>
-                  <tr>
-                    <th>S NO</th>
-                    <th>DATE</th>
-                    <th>HARDWARE NAME</th>
-                    <th>PARTY NAME</th>
-                    <th>FITTER NAME /HELPAR NAME</th>
-                    <th>INPUT</th>
-                    <th class="output-col">OUTPUT</th>
-                    <th>TOTAL</th>
-                  </tr>
-                </thead>
-                <tbody id="tx-log-body">
-                </tbody>
-              </table>
-            </div>
+          <div style="flex-grow:1; max-height:calc(100vh - 200px); overflow-y:auto; border-radius:8px; border:1px solid rgba(0, 0, 0, 0.3);" id="tx-log-table-container">
+            <table class="inv-log-table" id="tx-log-table">
+              <thead>
+                <tr style="background:#000000; color:#ffffff;">
+                  <th style="width: 40px; text-align: center;"><input type="checkbox" id="modal-select-all-tx" /></th>
+                  <th style="width: 60px; text-align: center;">S NO</th>
+                  <th>DATE</th>
+                  <th>HARDWARE NAME</th>
+                  <th>PARTY NAME</th>
+                  <th>FITTER / HELPER</th>
+                  <th style="text-align: center;">INPUT</th>
+                  <th style="text-align: center;" class="output-col">OUTPUT</th>
+                  <th style="text-align: center;">TOTAL</th>
+                </tr>
+              </thead>
+              <tbody id="tx-log-body">
+              </tbody>
+            </table>
           </div>
         </div>
       `;
 
-      app.openModal(`Transaction Logs — ${item.name}`, modalHTML, '650px');
+      app.openModal(`Transaction Logs — ${item.name}`, modalHTML, '750px');
+
+      let selectedTxIds = [];
 
       const renderModalLogs = (txData) => {
         const body = document.getElementById('tx-log-body');
         if (body) {
-           body.innerHTML = renderTxRows(txData);
+           body.innerHTML = renderTxRows(txData, selectedTxIds);
+           
+           // Bind inline inputs change handlers
            body.querySelectorAll('.log-edit').forEach(input => {
              input.addEventListener('change', async (e) => {
-                const txId = e.target.getAttribute('data-id');
-                const field = e.target.getAttribute('data-field');
-                let val = e.target.value;
-                if (field === 'quantity') val = parseInt(val) || 0;
-                if (field === 'date') val = SystemDateFormatter.toSystemFormat(val);
+                 const txId = e.target.getAttribute('data-id');
+                 const field = e.target.getAttribute('data-field');
+                 let val = e.target.value;
+                 if (field === 'quantity') val = parseInt(val) || 0;
+                 if (field === 'date') val = SystemDateFormatter.toSystemFormat(val);
 
-                const tx = await db.get('transactions', txId);
-                if (tx) {
-                   tx[field] = val;
-                   await db.put('transactions', tx);
-                   await sync.queueOperation('transactions', 'update', tx);
-                   
-                   // Recalculate stock only for quantity/type changes
-                   if (field === 'quantity' || field === 'type') {
-                     const newStock = await recalculateStock(itemId);
-                     const ms = document.getElementById('modal-current-stock');
-                     if (ms) ms.innerText = newStock + ' ' + item.unit;
-                   }
-                   
-                   // Re-render to update running totals
-                   const allTxRefresh = await db.getAll('transactions');
-                   const refreshedTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
-                   renderModalLogs(refreshedTx);
-                   populateItemsTable();
-                }
+                 const tx = await db.get('transactions', txId);
+                 if (tx) {
+                    tx[field] = val;
+                    await db.put('transactions', tx);
+                    await sync.queueOperation('transactions', 'update', tx);
+                    
+                    // Recalculate stock only for quantity/type changes
+                    if (field === 'quantity' || field === 'type') {
+                      const newStock = await recalculateStock(itemId);
+                      const ms = document.getElementById('modal-current-stock');
+                      if (ms) ms.innerText = newStock + ' ' + item.unit;
+                    }
+                    
+                    // Re-render to update running totals
+                    const allTxRefresh = await db.getAll('transactions');
+                    const refreshedTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+                    renderModalLogs(refreshedTx);
+                    populateItemsTable();
+                 }
              });
            });
+        }
+        updateBatchDeleteModalUI();
+      };
+
+      const updateBatchDeleteModalUI = () => {
+        const checkboxes = document.querySelectorAll('.modal-tx-select-checkbox');
+        const checked = Array.from(checkboxes).filter(cb => cb.checked);
+        selectedTxIds = checked.map(cb => cb.getAttribute('data-id'));
+        
+        const selectAll = document.getElementById('modal-select-all-tx');
+        if (selectAll) {
+          selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+        }
+        
+        const batchDeleteBtn = document.getElementById('modal-batch-delete-btn');
+        const batchDeleteText = document.getElementById('batch-delete-modal-text');
+        
+        if (batchDeleteBtn && batchDeleteText) {
+          if (selectedTxIds.length > 0) {
+            batchDeleteBtn.classList.remove('hidden');
+            batchDeleteText.textContent = `Delete Selected (${selectedTxIds.length})`;
+          } else {
+            batchDeleteBtn.classList.add('hidden');
+          }
         }
       };
 
       renderModalLogs(itemTx);
 
-      // Bind log search — includes all new register fields
+      // 1. Big Screen Mode toggle
+      const modalOverlay = document.getElementById('global-modal');
+      const fsToggleBtn = document.getElementById('modal-fullscreen-toggle-btn');
+      const fsToggleText = document.getElementById('fullscreen-toggle-text');
+
+      fsToggleBtn?.addEventListener('click', () => {
+        modalOverlay?.classList.toggle('big-screen-mode');
+        const isBig = modalOverlay?.classList.contains('big-screen-mode');
+        if (fsToggleText) {
+          fsToggleText.textContent = isBig ? 'Exit Big Screen' : 'Open Big Screen';
+        }
+        const fsIcon = fsToggleBtn.querySelector('i');
+        if (fsIcon) {
+          fsIcon.setAttribute('data-lucide', isBig ? 'minimize' : 'expand');
+          lucide.createIcons();
+        }
+      });
+
+      // 2. Smart Excel Paste Engine (Bulk Entry)
+      const parseAndFormatDate = (rawDate) => {
+        if (!rawDate) {
+          return SystemDateFormatter.toSystemFormat(new Date());
+        }
+        rawDate = rawDate.trim();
+        // If in MM-DD-YYYY or DD-MM-YYYY or MM/DD/YYYY format
+        if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(rawDate)) {
+          const parts = rawDate.replace(/\//g, '-').split('-');
+          const p1 = parts[0].padStart(2, '0');
+          const p2 = parts[1].padStart(2, '0');
+          const p3 = parts[2];
+          return `${p1}-${p2}-${p3}`;
+        }
+        
+        // If in YYYY-MM-DD format
+        if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawDate)) {
+          const parts = rawDate.replace(/\//g, '-').split('-');
+          const y = parts[0];
+          const m = parts[1].padStart(2, '0');
+          const d = parts[2].padStart(2, '0');
+          return `${m}-${d}-${y}`;
+        }
+        
+        // Use date engine fallback
+        return DateEngine.stringify(rawDate) || SystemDateFormatter.toSystemFormat(new Date());
+      };
+
+      const bulkPasteBtn = document.getElementById('modal-bulk-paste-btn');
+      const bulkPasteText = document.getElementById('bulk-paste-text');
+      
+      bulkPasteBtn?.addEventListener('click', () => {
+        let txt = document.getElementById('bulk-paste-textarea');
+        if (!txt) {
+          txt = document.createElement('textarea');
+          txt.id = 'bulk-paste-textarea';
+          txt.style.position = 'absolute';
+          txt.style.left = '-9999px';
+          txt.style.top = '0';
+          txt.style.opacity = '0';
+          document.body.appendChild(txt);
+        }
+        
+        txt.focus();
+        
+        if (bulkPasteText) {
+          bulkPasteText.textContent = 'Press Ctrl+V Now...';
+        }
+        bulkPasteBtn.style.animation = 'pulse-green 1s infinite';
+        
+        txt.addEventListener('paste', async (e) => {
+          e.preventDefault();
+          const text = e.clipboardData.getData('text');
+          
+          if (bulkPasteText) {
+            bulkPasteText.textContent = '+ Paste Excel (Ctrl+V)';
+          }
+          bulkPasteBtn.style.animation = '';
+          
+          txt.value = '';
+          txt.blur();
+          
+          if (!text || text.trim() === '') {
+            app.showToast('Empty Clipboard', 'No text found in clipboard to paste.', 'warning');
+            return;
+          }
+          
+          const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+          if (rows.length === 0) {
+            app.showToast('No Data', 'No parseable lines detected in pasted clipboard.', 'warning');
+            return;
+          }
+          
+          // Slice up to exactly 10 rows maximum to prevent table overflow
+          const batch = rows.slice(0, 10);
+          let successCount = 0;
+          
+          for (let idx = 0; idx < batch.length; idx++) {
+            const cols = batch[idx].split('\t'); // Excel uses tabs
+            
+            // Expected columns mapping logic:
+            // Col 1: Date (MM-DD-YYYY)
+            const rawDate = cols[0] || '';
+            const formattedDate = parseAndFormatDate(rawDate);
+            
+            // Col 2: Hardware Name (sanitized to uppercase)
+            const hardwareName = (cols[1] || '').trim().toUpperCase();
+            
+            // Col 3: Party Name
+            const partyName = (cols[2] || '').trim();
+            
+            // Col 4: Fitter / Helper
+            const fitterName = (cols[3] || '').trim();
+            
+            // Col 5 & 6: Input / Output (numeric validation)
+            const input = parseFloat(cols[4]) || 0;
+            const output = parseFloat(cols[5]) || 0;
+            
+            const quantity = input > 0 ? input : (output > 0 ? output : 0);
+            if (quantity <= 0) continue; // Skip entries without valid amounts
+            
+            const type = input > 0 ? 'inward' : 'outward';
+            const txId = `tx-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
+            const txRecord = {
+              id: txId,
+              itemId,
+              type,
+              quantity,
+              date: formattedDate,
+              sourceOrPurpose: 'Excel Bulk Import',
+              hardwareName,
+              partyName,
+              fitterName
+            };
+            
+            await db.put('transactions', txRecord);
+            await sync.queueOperation('transactions', 'insert', txRecord);
+            successCount++;
+          }
+          
+          if (successCount > 0) {
+            app.showToast('Bulk Paste Success', `Successfully imported ${successCount} rows from clipboard.`, 'success');
+            
+            // Recalculate stock
+            const newStock = await recalculateStock(itemId);
+            const ms = document.getElementById('modal-current-stock');
+            if (ms) ms.innerText = newStock + ' ' + item.unit;
+            
+            // Refresh modal lists
+            const allTxRefresh = await db.getAll('transactions');
+            itemTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+            renderModalLogs(itemTx);
+            populateItemsTable();
+          } else {
+            app.showToast('Paste Failed', 'No valid rows with positive quantities could be parsed. Check column mapping (Date, Hardware, Party, Fitter, Input, Output).', 'danger');
+          }
+        }, { once: true });
+      });
+
+      // 3. Multi-Select & Batch Deletion
+      document.getElementById('modal-select-all-tx')?.addEventListener('change', (e) => {
+        const isChecked = e.target.checked;
+        document.querySelectorAll('.modal-tx-select-checkbox').forEach(cb => {
+          cb.checked = isChecked;
+        });
+        updateBatchDeleteModalUI();
+      });
+
+      document.getElementById('tx-log-body')?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('modal-tx-select-checkbox')) {
+          updateBatchDeleteModalUI();
+        }
+      });
+
+      document.getElementById('modal-batch-delete-btn')?.addEventListener('click', async () => {
+        if (selectedTxIds.length === 0) return;
+        
+        if (confirm(`Are you sure you want to delete the ${selectedTxIds.length} selected transaction logs? This will permanently update the inventory stock balance.`)) {
+          for (const txId of selectedTxIds) {
+            await db.delete('transactions', txId);
+            await sync.queueOperation('transactions', 'delete', txId);
+          }
+          
+          app.showToast('Batch Logs Deleted', `Successfully deleted ${selectedTxIds.length} log rows.`, 'success');
+          
+          // Clear selections
+          selectedTxIds = [];
+          
+          // Recalculate stock
+          const newStock = await recalculateStock(itemId);
+          const ms = document.getElementById('modal-current-stock');
+          if (ms) ms.innerText = newStock + ' ' + item.unit;
+          
+          // Refresh list
+          const allTxRefresh = await db.getAll('transactions');
+          itemTx = allTxRefresh.filter(t => t.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+          renderModalLogs(itemTx);
+          populateItemsTable();
+        }
+      });
+
+      // 4. Search transactions
       document.getElementById('tx-log-search')?.addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase();
         const filteredTx = itemTx.filter(t =>
@@ -777,7 +1022,7 @@ function bindTableButtons() {
         renderModalLogs(filteredTx);
       });
 
-      // Bind import
+      // 5. Import CSV
       document.getElementById('modal-log-import')?.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -816,7 +1061,7 @@ function bindTableButtons() {
         });
       });
 
-      // Bind export — full register columns
+      // 6. Export CSV
       document.getElementById('modal-log-export-btn')?.addEventListener('click', () => {
         let runTotal = 0;
         const sorted = [...itemTx].sort((a, b) => a.date.localeCompare(b.date));
@@ -849,8 +1094,8 @@ function bindTableButtons() {
   });
 }
 
-function renderTxRows(txList) {
-  if (txList.length === 0) return `<tr><td colspan="8" style="text-align:center; padding:20px; color:#555;">No transactions found.</td></tr>`;
+function renderTxRows(txList, selectedIds = []) {
+  if (txList.length === 0) return `<tr><td colspan="9" style="text-align:center; padding:20px; color:#555;">No transactions found.</td></tr>`;
   
   // Sort chronologically for running total calculation
   const sorted = [...txList].sort((a, b) => a.date.localeCompare(b.date));
@@ -862,26 +1107,29 @@ function renderTxRows(txList) {
     const outputVal = !isInward ? t.quantity : '';
     runningTotal += isInward ? t.quantity : -t.quantity;
 
-    // Parse sourceOrPurpose for party/fitter info
     const source = t.sourceOrPurpose || '';
+    const isChecked = selectedIds.includes(t.id) ? 'checked' : '';
 
     return `
-      <tr>
-        <td class="text-center">${i + 1}</td>
-        <td>
+      <tr data-id="${t.id}" class="tx-row">
+        <td style="text-align: center; border-right: 1px solid #555555;">
+          <input type="checkbox" class="modal-tx-select-checkbox" data-id="${t.id}" ${isChecked} />
+        </td>
+        <td class="text-center" style="border-right: 1px solid #555555;">${i + 1}</td>
+        <td style="border-right: 1px solid #555555;">
           <input type="date" class="log-edit-field log-edit" data-id="${t.id}" data-field="date" value="${DateEngine.toPickerFormat(t.date)}" style="width:120px;">
         </td>
-        <td class="uppercase">
-          <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="hardwareName" value="${t.hardwareName || t.itemName || ''}" style="width:100%;" placeholder="—">
+        <td class="uppercase" style="border-right: 1px solid #555555;">
+          <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="hardwareName" value="${t.hardwareName || ''}" style="width:100%;" placeholder="—">
         </td>
-        <td>
+        <td style="border-right: 1px solid #555555;">
           <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="partyName" value="${t.partyName || ''}" style="width:100%;" placeholder="—">
         </td>
-        <td>
+        <td style="border-right: 1px solid #555555;">
           <input type="text" class="log-edit-field log-edit" data-id="${t.id}" data-field="fitterName" value="${t.fitterName || source}" style="width:100%;" placeholder="—">
         </td>
-        <td class="text-center">${inputVal}</td>
-        <td class="text-center">${outputVal}</td>
+        <td class="text-center font-bold text-blue-700" style="border-right: 1px solid #555555;">${inputVal}</td>
+        <td class="text-center font-bold text-red-600" style="border-right: 1px solid #555555;">${outputVal}</td>
         <td class="text-center" style="font-weight:700;">${runningTotal}</td>
       </tr>
     `;
