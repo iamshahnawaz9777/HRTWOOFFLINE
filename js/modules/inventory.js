@@ -656,17 +656,7 @@ async function recalculateStock(itemId) {
   return calculated;
 }
 
-function bindTableButtons() {
-  // Edit button → opens Edit modal
-  document.querySelectorAll('.edit-item-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const itemId = btn.getAttribute('data-id');
-      const container = document.getElementById('view-content');
-      await openEditItemModal(itemId, container);
-    });
-  });
-
-  // Inspect Logs button → opens tran/* ==========================================================================
+/* ==========================================================================
    Log Import Studio Full-Screen Workspace (Version 6)
    ========================================================================== */
 function openLogImportStudio(itemId, item, onCompleted) {
