@@ -10,6 +10,7 @@
     "@libsql/client": "^0.17.3",
     "@supabase/supabase-js": "^2.106.2",
     "@tursodatabase/api": "^2.0.0",
+    "acorn": "^8.16.0",
     "dotenv": "^17.4.2"
   }
 }
