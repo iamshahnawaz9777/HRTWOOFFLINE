@@ -1067,11 +1067,23 @@ function openLogImportStudio(itemId, item, onCompleted) {
       });
       
       document.getElementById('studio-confirm-sync-btn')?.addEventListener('click', async () => {
-        const realPayload = stagingLogs.filter(row => row.date || row.hardwareName || row.partyName);
-        if (realPayload.length === 0) {
+        const verifiedPayload = stagingLogs.filter(row => 
+          row.date !== '' || row.hardwareName !== '' || row.input !== '' || row.output !== ''
+        );
+        if (verifiedPayload.length === 0) {
           app.showToast('Empty Staging', 'Spreadsheet staging space contains no data to record!', 'warning');
           return;
         }
+
+        // CRITICAL FIX: Convert DD-MM-YYYY to a sortable timestamp
+        const realPayload = [...verifiedPayload].sort((a, b) => {
+          const parseDate = (str) => {
+            if (!str) return new Date(0);
+            const [d, m, y] = str.split('-').map(Number);
+            return new Date(y, m - 1, d); // Year, MonthIndex (0-11), Day
+          };
+          return parseDate(a.date) - parseDate(b.date);
+        });
         
         let successCount = 0;
         for (let i = 0; i < realPayload.length; i++) {
@@ -1470,7 +1482,15 @@ function renderTxRows(txList, selectedIds = []) {
   if (txList.length === 0) return `<tr><td colspan="9" style="text-align:center; padding:20px; color:#555;">No transactions found.</td></tr>`;
   
   // Sort chronologically for running total calculation
-  const sorted = [...txList].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...txList].sort((a, b) => {
+    const parseDate = (str) => {
+      if (!str || typeof str !== 'string') return new Date(0);
+      const parts = str.split('-');
+      if (parts.length !== 3) return new Date(0);
+      return new Date(parts[2], parts[1] - 1, parts[0]);
+    };
+    return parseDate(a.date) - parseDate(b.date);
+  });
   let runningTotal = 0;
 
   return sorted.map((t, i) => {
