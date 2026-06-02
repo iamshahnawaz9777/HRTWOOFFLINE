@@ -128,6 +128,11 @@ async function renderDirectoryTab(container) {
             <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
             <span id="batch-delete-emp-text">Delete Selected (0)</span>
           </button>
+          <input type="file" id="hr-csv-upload" accept=".csv" style="display:none;" />
+          <button id="import-employees-btn" class="btn btn-secondary" style="padding: 8px 16px;" onclick="document.getElementById('hr-csv-upload').click()">
+            <i data-lucide="upload-cloud"></i>
+            <span>Import CSV</span>
+          </button>
           <button id="add-employee-btn" class="btn btn-primary" style="padding: 8px 16px;">
             <i data-lucide="user-plus"></i>
             <span>Add Employee</span>
@@ -272,6 +277,61 @@ async function renderDirectoryTab(container) {
     });
   });
 
+  // Bind CSV Import
+  const csvUploadInput = document.getElementById('hr-csv-upload');
+  if (csvUploadInput) {
+    csvUploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (typeof Papa === 'undefined') {
+        app.showToast('Error', 'Papa Parse is not loaded.', 'danger');
+        return;
+      }
+
+      Papa.parse(file, {
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          let count = 0;
+          for (const row of results.data) {
+            const name = row.name || row.Name || row['Full Name'];
+            if (!name) continue;
+
+            const contact = row.contact || row.Contact || row.email || row.Email || '';
+            const role = row.role || row.Role || row.Designation || 'Employee';
+            const department = row.department || row.Department || 'Operations';
+            const joiningDate = row.joiningDate || row['Joining Date'] || TODAY_STR;
+            const salary = parseFloat(row.salary || row.Salary) || 0;
+            const id = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
+
+            const newEmp = { id, name, role, department, contact, joiningDate, documents: [], leaveBalance: 15, salary };
+            await db.put('employees', newEmp);
+            await sync.queueOperation('employees', 'insert', newEmp);
+
+            const userLower = name.split(' ')[0].toLowerCase() + Math.floor(10 + Math.random() * 90);
+            const newUser = { username: userLower, password: 'user123', role, status: 'Active' };
+            await db.put('users', newUser);
+            await sync.queueOperation('users', 'insert', newUser);
+            count++;
+          }
+          if (count > 0) {
+            app.showToast('Import Successful', `Imported ${count} employees from CSV.`, 'success');
+            await renderActiveHRTab();
+          } else {
+            app.showToast('Import Failed', 'No valid employee data found in CSV.', 'warning');
+          }
+          e.target.value = ''; // Reset input
+        },
+        error: (err) => {
+          console.error(err);
+          app.showToast('Import Error', 'Failed to parse the CSV file.', 'danger');
+        }
+      });
+    });
+  }
+
   // Batch delete logic & helper function
   const updateBatchDeleteEmpUI = () => {
     const checkboxes = document.querySelectorAll('.emp-select-checkbox');
@@ -341,15 +401,20 @@ async function openEmployeeProfileModal(emp) {
   const generateModalHTML = () => `
     <div style="display:flex; flex-direction:column; gap:20px;">
       <!-- Profile Card Summary -->
-      <div style="display:flex; align-items:center; gap:20px;">
-        <div class="profile-avatar-large" style="margin-bottom:0; width:70px; height:70px; font-size:24px;">
-          ${emp.name.substring(0, 2).toUpperCase()}
+      <div style="display:flex; align-items:center; gap:20px; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:20px;">
+          <div class="profile-avatar-large" style="margin-bottom:0; width:70px; height:70px; font-size:24px;">
+            ${emp.name.substring(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <h2 style="font-size:18px; font-family:var(--font-heading); font-weight:800;">${emp.name}</h2>
+            <span class="badge primary">${emp.department}</span>
+            <span class="muted-text" style="font-size:12px; margin-left:8px;">Joined ${emp.joiningDate}</span>
+          </div>
         </div>
-        <div>
-          <h2 style="font-size:18px; font-family:var(--font-heading); font-weight:800;">${emp.name}</h2>
-          <span class="badge primary">${emp.department}</span>
-          <span class="muted-text" style="font-size:12px; margin-left:8px;">Joined ${emp.joiningDate}</span>
-        </div>
+        <button id="edit-employee-btn" class="btn btn-secondary" style="padding:6px 12px; font-size:12px;">
+          <i data-lucide="edit"></i> Edit Profile
+        </button>
       </div>
 
       <!-- Nested modal profile tabs -->
@@ -491,6 +556,70 @@ async function openEmployeeProfileModal(emp) {
       activeProfileTab = btn.getAttribute('data-ptab');
       updateProfileTabRender();
     });
+  });
+
+  document.getElementById('edit-employee-btn')?.addEventListener('click', () => {
+    app.closeModal();
+    setTimeout(() => {
+      openEditEmployeeModal(emp);
+    }, 300);
+  });
+}
+
+async function openEditEmployeeModal(emp) {
+  const formHTML = `
+    <form id="edit-employee-form" class="login-form" style="padding:0;">
+      <div class="input-group">
+        <label>Full Name <span style="color:var(--danger); font-size:11px;">*required</span></label>
+        <input type="text" id="edit-emp-name" class="form-control-noicon" required value="${emp.name}">
+      </div>
+      <div class="input-group">
+        <label>Email Contact</label>
+        <input type="email" id="edit-emp-email" class="form-control-noicon" value="${emp.contact || ''}">
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div class="input-group">
+          <label>Designation Role</label>
+          <input type="text" id="edit-emp-role" class="form-control-noicon" value="${emp.role || ''}">
+        </div>
+        <div class="input-group">
+          <label>Department</label>
+          <input type="text" id="edit-emp-dept" class="form-control-noicon" value="${emp.department || ''}">
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div class="input-group">
+          <label>Joining Date</label>
+          <input type="date" id="edit-emp-join" class="form-control-noicon" value="${emp.joiningDate || ''}">
+        </div>
+        <div class="input-group">
+          <label>Starting Salary ($)</label>
+          <input type="number" id="edit-emp-salary" class="form-control-noicon" value="${emp.salary || 0}">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+    </form>
+  `;
+
+  app.openModal('Edit Employee Record', formHTML);
+
+  document.getElementById('edit-employee-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    emp.name = document.getElementById('edit-emp-name').value;
+    emp.contact = document.getElementById('edit-emp-email').value || '';
+    emp.role = document.getElementById('edit-emp-role').value || 'Employee';
+    emp.department = document.getElementById('edit-emp-dept').value || 'Operations';
+    emp.joiningDate = document.getElementById('edit-emp-join').value || '';
+    emp.salary = document.getElementById('edit-emp-salary').value || 0;
+
+    await db.put('employees', emp);
+    await sync.queueOperation('employees', 'update', emp);
+
+    app.closeModal();
+    app.showToast('Employee Updated', `Updated profile for ${emp.name}.`, 'success');
+
+    await renderActiveHRTab();
+    setTimeout(() => { openEmployeeProfileModal(emp); }, 350);
   });
 }
 

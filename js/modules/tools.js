@@ -95,6 +95,9 @@ export async function renderTools(container) {
                         Mark Returned
                       </button>
                     ` : ''}
+                    <button class="btn btn-primary edit-tool-btn" data-id="${record.id}" style="padding:4px 8px; font-size:11px; margin-left:4px;">
+                      Edit
+                    </button>
                   </td>
                 </tr>
               `).join('')}
@@ -169,6 +172,69 @@ function bindEvents(container) {
 
         app.showToast('Tool Returned', `Marked ${record.toolDetails} as returned.`, 'success');
         renderTools(container);
+      }
+    });
+  });
+
+  // Edit Tool Allotment
+  document.querySelectorAll('.edit-tool-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (!id) return;
+
+      const record = await db.get('tools_tracking', id);
+      if (record) {
+        const formHTML = `
+          <form id="edit-tool-form" style="display:flex; flex-direction:column; gap:14px; padding:10px;">
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Employee</label>
+              <input type="text" id="edit-tool-emp" class="form-control-noicon" value="${record.employeeName}" required />
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Tool Details</label>
+              <input type="text" id="edit-tool-details" class="form-control-noicon" value="${record.toolDetails}" required />
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Date Taken</label>
+              <input type="date" id="edit-tool-taken" class="form-control-noicon" value="${record.dateTaken || ''}" />
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Expected Return Date</label>
+              <input type="date" id="edit-tool-expected" class="form-control-noicon" value="${record.expectedReturn || ''}" />
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Status</label>
+              <select id="edit-tool-status" class="form-control-noicon">
+                <option value="Issued" ${record.status === 'Issued' ? 'selected' : ''}>Issued</option>
+                <option value="Returned" ${record.status === 'Returned' ? 'selected' : ''}>Returned</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" style="margin-top:8px;">
+              Save Changes
+            </button>
+          </form>
+        `;
+        app.openModal('Edit Tool Allotment', formHTML, '400px');
+
+        document.getElementById('edit-tool-form').addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          record.employeeName = document.getElementById('edit-tool-emp').value.trim();
+          record.toolDetails = document.getElementById('edit-tool-details').value.trim();
+          record.dateTaken = document.getElementById('edit-tool-taken').value;
+          record.expectedReturn = document.getElementById('edit-tool-expected').value;
+          record.status = document.getElementById('edit-tool-status').value;
+
+          if (record.status === 'Returned' && !record.dateReturned) {
+            record.dateReturned = DateEngine.stringify(new Date().toISOString().split('T')[0]);
+          }
+
+          await db.put('tools_tracking', record);
+          await sync.queueOperation('tools_tracking', 'update', record);
+
+          app.closeModal();
+          app.showToast('Tool Updated', 'Successfully updated tool allotment.', 'success');
+          renderTools(container);
+        });
       }
     });
   });

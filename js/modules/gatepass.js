@@ -206,6 +206,9 @@ async function renderPassDetails() {
               <i data-lucide="check-circle"></i><span>Approve</span>
             </button>
           ` : ''}
+          <button id="gp-edit-btn" class="btn btn-primary" style="padding:8px 14px; font-size:13px;">
+            <i data-lucide="edit"></i><span>Edit Pass</span>
+          </button>
           <button id="gp-print-btn" class="btn btn-secondary" style="padding:8px 14px; font-size:13px;">
             <i data-lucide="printer"></i><span>Print PDF</span>
           </button>
@@ -650,6 +653,184 @@ async function openCreateGatePassModal(container) {
   bindCreateModalEvents(inventoryItems, container);
 }
 
+/* ==========================================================================
+   Edit Gate Pass — Modal Builder
+   ========================================================================== */
+async function openEditGatePassModal(container, gp) {
+  tempGatePassItems = JSON.parse(JSON.stringify(gp.items || []));
+  const inventoryItems = await db.getAll('inventory');
+
+  const formHTML = `
+    <div style="display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Section 1: Person -->
+      <div>
+        <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
+          1. Person Responsible
+        </h4>
+        <div class="gp-form-sections">
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Recipient Name</label>
+            <input type="text" id="gp-edit-name" class="form-control-noicon" value="${gp.person?.name || ''}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Contact Phone</label>
+            <input type="text" id="gp-edit-contact" class="form-control-noicon" value="${gp.person?.contact || ''}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Designation</label>
+            <input type="text" id="gp-edit-designation" class="form-control-noicon" value="${gp.person?.designation || ''}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Transport -->
+      <div>
+        <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
+          2. Transportation Details
+        </h4>
+        <div class="gp-form-sections">
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Vehicle Plate No.</label>
+            <input type="text" id="gp-edit-vehno" class="form-control-noicon" value="${gp.vehicle?.vehicleNo || ''}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Driver Full Name</label>
+            <input type="text" id="gp-edit-driver" class="form-control-noicon" value="${gp.vehicle?.driverName || ''}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Vehicle Type</label>
+            <input type="text" id="gp-edit-vehtype" class="form-control-noicon" value="${gp.vehicle?.vehicleType || ''}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Pass Date</label>
+            <input type="date" id="gp-edit-date" class="form-control-noicon" value="${gp.date || TODAY_STR}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Items (Only viewable here to keep returns logic intact, unless Pending) -->
+      ${gp.status === 'Pending' ? `
+      <div>
+        <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
+          3. Modify Items
+        </h4>
+        <div id="gp-queued-section" style="border:1px solid var(--glass-border); border-radius:var(--radius-md); overflow:hidden;">
+          <div style="padding:10px 14px; background:rgba(0,0,0,0.15); border-bottom:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center;">
+            <h5 style="font-size:12px; font-weight:700; margin:0;">Items</h5>
+            <span id="gp-items-count" style="font-size:11px; color:var(--text-muted);"></span>
+          </div>
+          <div style="overflow-x:auto; max-height:200px; overflow-y:auto;">
+            <table class="custom-table" style="font-size:11px;" id="gp-queued-items-table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Item Name</th>
+                  <th>Qty</th>
+                  <th>Remove</th>
+                </tr>
+              </thead>
+              <tbody id="gp-queued-items-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      ` : `
+      <div style="padding:10px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:12px;">
+        <em>Items cannot be modified because the gate pass is ${gp.status}.</em>
+      </div>
+      `}
+
+      <!-- Section 5: Payment / Amount -->
+      <div>
+        <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
+          4. Payment & Amount
+        </h4>
+        <div class="gp-form-sections">
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Total Amount (₹)</label>
+            <input type="number" id="gp-edit-total-amount" class="form-control-noicon" min="0" step="0.01" value="${gp.pricing?.totalAmount || 0}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Amount Paid (₹)</label>
+            <input type="number" id="gp-edit-amount-paid" class="form-control-noicon" min="0" step="0.01" value="${gp.pricing?.amountPaid || 0}">
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Payment Mode</label>
+            <select id="gp-edit-payment-mode" class="form-control-noicon">
+              <option value="" ${gp.pricing?.paymentMode === '' ? 'selected' : ''}>— Select Mode —</option>
+              <option value="Cash" ${gp.pricing?.paymentMode === 'Cash' ? 'selected' : ''}>Cash</option>
+              <option value="Cheque" ${gp.pricing?.paymentMode === 'Cheque' ? 'selected' : ''}>Cheque</option>
+              <option value="Bank Transfer" ${gp.pricing?.paymentMode === 'Bank Transfer' ? 'selected' : ''}>Bank Transfer</option>
+              <option value="UPI" ${gp.pricing?.paymentMode === 'UPI' ? 'selected' : ''}>UPI</option>
+              <option value="Credit" ${gp.pricing?.paymentMode === 'Credit' ? 'selected' : ''}>Credit / Due</option>
+            </select>
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Payment Remarks</label>
+            <input type="text" id="gp-edit-payment-remarks" class="form-control-noicon" value="${gp.pricing?.remarks || ''}">
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--glass-border); padding-top:16px; text-align:right;">
+        <button type="button" id="gp-update-btn" class="btn btn-primary" style="padding:10px 28px;">
+          <i data-lucide="save"></i>
+          <span>Save Changes</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  app.openModal('Edit Gate Pass', formHTML, '700px');
+
+  if (gp.status === 'Pending') {
+    updateQueuedTable();
+  }
+
+  document.getElementById('gp-update-btn').addEventListener('click', async () => {
+    gp.person = {
+      name: document.getElementById('gp-edit-name').value.trim(),
+      contact: document.getElementById('gp-edit-contact').value.trim(),
+      designation: document.getElementById('gp-edit-designation').value.trim()
+    };
+    gp.vehicle = {
+      vehicleNo: document.getElementById('gp-edit-vehno').value.trim().toUpperCase(),
+      driverName: document.getElementById('gp-edit-driver').value.trim(),
+      vehicleType: document.getElementById('gp-edit-vehtype').value.trim()
+    };
+    gp.date = document.getElementById('gp-edit-date').value;
+    
+    gp.pricing = {
+      totalAmount: parseFloat(document.getElementById('gp-edit-total-amount').value || '0'),
+      amountPaid: parseFloat(document.getElementById('gp-edit-amount-paid').value || '0'),
+      paymentMode: document.getElementById('gp-edit-payment-mode').value,
+      remarks: document.getElementById('gp-edit-payment-remarks').value.trim()
+    };
+
+    if (gp.status === 'Pending') {
+      gp.items = [...tempGatePassItems];
+      if (gp.returnable) {
+        // Sync returns structure if items were added/removed
+        const currentReturns = gp.returns || [];
+        gp.returns = tempGatePassItems.filter(i => i.source === 'store').map(item => {
+          const exist = currentReturns.find(r => r.code === item.code);
+          return exist ? exist : { code: item.code, returnedQty: 0, date: '' };
+        });
+      }
+    }
+
+    await db.put('gatepasses', gp);
+    await sync.queueOperation('gatepasses', 'update', gp);
+
+    app.closeModal();
+    app.showToast('Updated', `Gate Pass ${gp.gatePassNo} updated successfully.`, 'success');
+    await renderGatePass(container);
+  });
+  
+  lucide.createIcons();
+}
+
 /* Helper: renders the store item search results list */
 function renderStoreResults(items, query) {
   let filtered = items;
@@ -932,6 +1113,11 @@ function bindStoreRowClicks() {
    Detail Panel — Action Binds (Approve, Print, Close, Returns)
    ========================================================================== */
 function bindDetailsActions(gp) {
+  // 0. Edit Pass
+  document.getElementById('gp-edit-btn')?.addEventListener('click', async () => {
+    await openEditGatePassModal(document.getElementById('view-content'), gp);
+  });
+
   // 1. Approve Pass
   const approveBtn = document.getElementById('gp-approve-btn');
   if (approveBtn) {
