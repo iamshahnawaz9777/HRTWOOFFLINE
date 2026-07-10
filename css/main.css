@@ -2314,9 +2314,6 @@ html[data-theme="light"] .db-sync-widget {
 .inv-log-table thead th:last-child {
   border-right: none;
 }
-  animation: appFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: 0.3s;
-}
 
 @keyframes appFadeIn {
   from {

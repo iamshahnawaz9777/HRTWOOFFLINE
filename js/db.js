@@ -3,11 +3,14 @@
    ========================================================================== */
 
 const DB_NAME = 'AeroGlassERP_DB';
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 
 class IndexedDBStore {
   constructor() {
     this.db = null;
+    this.localDirHandle = null;
+    this.localDirPath = null;
+    this.isLocalDirAutoSave = true;
   }
 
   /**
@@ -91,6 +94,26 @@ class IndexedDBStore {
         if (!db.objectStoreNames.contains('inventory_categories')) {
           db.createObjectStore('inventory_categories', { keyPath: 'id' });
         }
+
+        // 13. Designs Store
+        if (!db.objectStoreNames.contains('designs')) {
+          db.createObjectStore('designs', { keyPath: 'id' });
+        }
+
+        // 14. Fittings Store
+        if (!db.objectStoreNames.contains('fittings')) {
+          db.createObjectStore('fittings', { keyPath: 'id' });
+        }
+
+        // 15. Quotes Store
+        if (!db.objectStoreNames.contains('quotes')) {
+          db.createObjectStore('quotes', { keyPath: 'id' });
+        }
+
+        // 16. App Settings Store
+        if (!db.objectStoreNames.contains('app_settings')) {
+          db.createObjectStore('app_settings', { keyPath: 'key' });
+        }
       };
     });
   }
@@ -101,6 +124,204 @@ class IndexedDBStore {
   async getTransaction(storeName, mode = 'readonly') {
     const db = await this.open();
     return db.transaction(storeName, mode).objectStore(storeName);
+  }
+
+  /**
+   * Fetch single app setting value
+   */
+  async getSetting(key) {
+    try {
+      const store = await this.getTransaction('app_settings');
+      return new Promise((resolve) => {
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result ? request.result.value : null);
+        request.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Save app setting value
+   */
+  async setSetting(key, value) {
+    try {
+      const store = await this.getTransaction('app_settings', 'readwrite');
+      return new Promise((resolve) => {
+        const request = store.put({ key, value });
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => resolve(false);
+      });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Set and save local directory handle
+   */
+  async setLocalDirHandle(handle) {
+    this.localDirHandle = handle;
+    await this.setSetting('local_dir_handle', handle);
+    await this.setSetting('local_dir_autosave', this.isLocalDirAutoSave);
+  }
+
+  /**
+   * Load local directory handle from database
+   */
+  async loadLocalDirHandle() {
+    const handle = await this.getSetting('local_dir_handle');
+    if (handle) {
+      this.localDirHandle = handle;
+    }
+    const dirPath = await this.getSetting('local_dir_path');
+    if (dirPath) {
+      this.localDirPath = dirPath;
+    }
+    const autosave = await this.getSetting('local_dir_autosave');
+    if (autosave !== null) {
+      this.isLocalDirAutoSave = autosave;
+    }
+  }
+
+  /**
+   * Query directory handle permission status
+   */
+  async verifyPermission(readWrite = true) {
+    if (window.showDirectoryPicker && this.localDirHandle) {
+      const opts = {};
+      if (readWrite) {
+        opts.mode = 'readwrite';
+      }
+      try {
+        return (await this.localDirHandle.queryPermission(opts)) === 'granted';
+      } catch (e) {
+        return false;
+      }
+    } else if (this.localDirPath) {
+      try {
+        const res = await fetch(`/api/local-db/check?path=${encodeURIComponent(this.localDirPath)}`);
+        return res.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Request directory handle permission from user
+   */
+  async requestPermission(readWrite = true) {
+    if (window.showDirectoryPicker && this.localDirHandle) {
+      const opts = {};
+      if (readWrite) {
+        opts.mode = 'readwrite';
+      }
+      try {
+        return (await this.localDirHandle.requestPermission(opts)) === 'granted';
+      } catch (e) {
+        return false;
+      }
+    } else if (this.localDirPath) {
+      return this.verifyPermission(readWrite);
+    }
+    return false;
+  }
+
+  /**
+   * Writes all items in an object store to a JSON file in the local directory
+   */
+  async writeStoreToFolder(storeName) {
+    if (window.showDirectoryPicker && this.localDirHandle) {
+      const isAuthorized = await this.verifyPermission(true);
+      if (!isAuthorized) {
+        console.warn(`Local directory not authorized to write store: ${storeName}`);
+        return;
+      }
+      try {
+        const data = await this.getAll(storeName);
+        const fileHandle = await this.localDirHandle.getFileHandle(`${storeName}.json`, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(data, null, 2));
+        await writable.close();
+        console.log(`✓ Auto-saved ${storeName}.json to local directory`);
+      } catch (err) {
+        console.error(`Failed to auto-save store ${storeName}:`, err);
+      }
+    } else if (this.localDirPath) {
+      try {
+        const data = await this.getAll(storeName);
+        await fetch('/api/local-db/write', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dirPath: this.localDirPath, file: `${storeName}.json`, data })
+        });
+        console.log(`✓ Auto-saved ${storeName}.json to local directory via server API`);
+      } catch (err) {
+        console.error(`Failed to auto-save store ${storeName} via server API:`, err);
+      }
+    }
+  }
+
+  /**
+   * Exports all database stores to the local directory as JSON files
+   */
+  async exportAllToFolder() {
+    if (!this.localDirHandle && !this.localDirPath) throw new Error('No local folder connected.');
+    const isAuthorized = await this.requestPermission(true);
+    if (!isAuthorized) throw new Error('Directory write permission denied.');
+
+    const storeNames = ['users', 'projects', 'tasks', 'employees', 'attendance', 'leaves', 'inventory', 'transactions', 'gatepasses', 'tools_tracking', 'inventory_categories', 'designs', 'fittings', 'quotes'];
+    for (const name of storeNames) {
+      await this.writeStoreToFolder(name);
+    }
+  }
+
+  /**
+   * Imports all database stores from JSON files in the local directory
+   */
+  async importAllFromFolder() {
+    if (!this.localDirHandle && !this.localDirPath) throw new Error('No local folder connected.');
+    const isAuthorized = await this.requestPermission(true);
+    if (!isAuthorized) throw new Error('Directory read/write permission denied.');
+
+    const storeNames = ['users', 'projects', 'tasks', 'employees', 'attendance', 'leaves', 'inventory', 'transactions', 'gatepasses', 'tools_tracking', 'inventory_categories', 'designs', 'fittings', 'quotes'];
+    
+    let importedCount = 0;
+    for (const name of storeNames) {
+      try {
+        let data = null;
+        if (window.showDirectoryPicker && this.localDirHandle) {
+          const fileHandle = await this.localDirHandle.getFileHandle(`${name}.json`);
+          const file = await fileHandle.getFile();
+          const text = await file.text();
+          data = JSON.parse(text);
+        } else if (this.localDirPath) {
+          const res = await fetch('/api/local-db/read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dirPath: this.localDirPath, file: `${name}.json` })
+          });
+          if (res.ok) {
+            const json = await res.json();
+            data = json.data;
+          }
+        }
+
+        if (Array.isArray(data)) {
+          await this.clearDirectly(name);
+          for (const item of data) {
+            await this.putDirectly(name, item);
+          }
+          importedCount++;
+        }
+      } catch (err) {
+        console.warn(`Could not import store ${name}:`, err.message);
+      }
+    }
+    return importedCount;
   }
 
   /**
@@ -128,9 +349,26 @@ class IndexedDBStore {
   }
 
   /**
-   * Save (Insert/Update) item in store
+   * Save (Insert/Update) item in store (with auto-save hook)
    */
   async put(storeName, data) {
+    const store = await this.getTransaction(storeName, 'readwrite');
+    return new Promise((resolve, reject) => {
+      const request = store.put(data);
+      request.onsuccess = async () => {
+        if ((this.localDirHandle || this.localDirPath) && this.isLocalDirAutoSave && storeName !== 'app_settings' && storeName !== 'syncQueue') {
+          this.writeStoreToFolder(storeName).catch(e => console.warn(e));
+        }
+        resolve(request.result);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Save (Insert/Update) item in store directly (bypassing auto-save hook)
+   */
+  async putDirectly(storeName, data) {
     const store = await this.getTransaction(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
       const request = store.put(data);
@@ -146,7 +384,12 @@ class IndexedDBStore {
     const store = await this.getTransaction(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
       const request = store.delete(key);
-      request.onsuccess = () => resolve(true);
+      request.onsuccess = async () => {
+        if ((this.localDirHandle || this.localDirPath) && this.isLocalDirAutoSave && storeName !== 'app_settings' && storeName !== 'syncQueue') {
+          this.writeStoreToFolder(storeName).catch(e => console.warn(e));
+        }
+        resolve(true);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -155,6 +398,23 @@ class IndexedDBStore {
    * Clear all records in store
    */
   async clear(storeName) {
+    const store = await this.getTransaction(storeName, 'readwrite');
+    return new Promise((resolve, reject) => {
+      const request = store.clear();
+      request.onsuccess = async () => {
+        if ((this.localDirHandle || this.localDirPath) && this.isLocalDirAutoSave && storeName !== 'app_settings' && storeName !== 'syncQueue') {
+          this.writeStoreToFolder(storeName).catch(e => console.warn(e));
+        }
+        resolve(true);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Clear all records in store directly (bypassing auto-save hook)
+   */
+  async clearDirectly(storeName) {
     const store = await this.getTransaction(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
       const request = store.clear();
@@ -363,10 +623,24 @@ class IndexedDBStore {
     // 11. Tools Tracking default seed (Empty initially, but could be seeded if needed)
     // No seed needed for tools tracking right now.
 
+    // 12. Default Fittings Catalog
+    const defaultFittings = [
+      { id: 'fit-1', name: 'Heavy Duty Pivot Hinge', code: 'HINGE-HD-PIVOT', category: 'hinge', price: 45.00, unit: 'pcs' },
+      { id: 'fit-2', name: 'Stainless Steel D-Handle 300mm', code: 'HANDLE-SS-D300', category: 'handle', price: 25.00, unit: 'pcs' },
+      { id: 'fit-3', name: 'Multi-point Lock System', code: 'LOCK-MULTIPNT', category: 'lock', price: 60.00, unit: 'pcs' },
+      { id: 'fit-4', name: 'Nylon Double Roller Wheel', code: 'ROLLER-NYLON-DBL', category: 'roller', price: 8.50, unit: 'pcs' },
+      { id: 'fit-5', name: 'Dow Corning 791 Silicon Sealant', code: 'SEAL-SILICON-DC791', category: 'sealant', price: 12.00, unit: 'tube' },
+      { id: 'fit-6', name: 'EPDM Weather Gasket', code: 'GASKET-EPDM-WEATHER', category: 'sealant', price: 1.50, unit: 'meter' }
+    ];
+    for (const fit of defaultFittings) {
+      await this.put('fittings', fit);
+    }
+
     console.log('Seeding process completed successfully!');
   }
   async init() {
     await this.open();
+    await this.loadLocalDirHandle();
     await this.seed();
 
     // Safety fallback: Force-write root admin user on initialization to guarantee it always exists

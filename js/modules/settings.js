@@ -19,6 +19,20 @@ export async function renderSettings(container) {
   const queue = await db.getAll('syncQueue');
   const syncStatus = sync.getStatus();
 
+  const isBrowserPickerSupported = typeof window.showDirectoryPicker === 'function';
+  const isConnected = !!(db.localDirHandle || db.localDirPath);
+  let isAuthorized = false;
+  let folderName = '';
+  if (isConnected) {
+    if (db.localDirHandle) {
+      folderName = db.localDirHandle.name;
+      isAuthorized = await db.verifyPermission(true);
+    } else if (db.localDirPath) {
+      folderName = db.localDirPath;
+      isAuthorized = await db.verifyPermission(true);
+    }
+  }
+
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
       <!-- Column 1: Supabase integration credentials and manual sync -->
@@ -130,6 +144,91 @@ export async function renderSettings(container) {
 
       <!-- Column 2: Data Backup & CSV Exports -->
       <div style="display:flex; flex-direction:column; gap:24px;">
+        
+        <!-- Local Folder Database Configuration -->
+        <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
+          <div>
+            <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">📁 Local Folder Database Sync</h3>
+            <p class="muted-text" style="font-size:12px;">Store your ERP database locally in a folder on your computer as physical JSON files. Perfect for version control and total privacy.</p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            ${!isConnected ? `
+              <div style="background:rgba(255,255,255,0.01); border:1px dashed var(--glass-border); padding:16px; border-radius:8px; display:flex; flex-direction:column; gap:12px;">
+                <p class="muted-text" style="font-size:12px; margin:0; text-align:center;">No local folder connected. Database changes are saved to browser IndexedDB only.</p>
+                
+                ${isBrowserPickerSupported ? `
+                  <button id="local-folder-select-btn" class="btn btn-primary" style="padding:10px 16px; margin: 0 auto; display: inline-flex; align-items: center; gap: 8px;">
+                    <i data-lucide="folder-plus"></i>
+                    <span>Select Local Folder</span>
+                  </button>
+                  <div style="text-align:center; font-size:11px; margin:4px 0;" class="muted-text">— OR ENTER PATH MANUALLY —</div>
+                ` : `
+                  <div style="background:rgba(239,68,68,0.1); border:1px solid var(--danger); padding:8px 12px; border-radius:6px; font-size:11px; color:var(--danger); display:flex; gap:8px; align-items:center; margin-bottom:4px;">
+                    <i data-lucide="alert-circle" style="flex-shrink:0; width:16px; height:16px;"></i>
+                    <span>Browser folder picker is unsupported. Reverting to local server path input.</span>
+                  </div>
+                `}
+
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                  <label style="font-size:11px; font-weight:700; text-transform:uppercase; text-align:left;">Absolute Folder Path</label>
+                  <div style="display:flex; gap:8px;">
+                    <input type="text" id="local-folder-path-input" class="form-control-noicon" style="flex:1;" placeholder="e.g. C:\\aeroglass-data or D:\\erp-files" value="">
+                    <button id="local-folder-path-connect-btn" class="btn btn-primary" style="padding:10px 16px; font-size:12px;">Connect Path</button>
+                  </div>
+                </div>
+              </div>
+            ` : `
+              <div style="background:rgba(255,255,255,0.01); border:1px solid var(--glass-border); padding:16px; border-radius:8px; display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <h4 style="font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;">
+                      <i data-lucide="folder" style="color:var(--primary-color); width:16px; height:16px;"></i>
+                      ${folderName}
+                    </h4>
+                    <p class="muted-text" style="font-size:11px; margin-top:2px;">Linked directory path handle</p>
+                  </div>
+                  <div>
+                    ${isAuthorized ? `
+                      <span class="badge success-badge" style="font-size:10px; padding:4px 8px; border-radius:4px; background:var(--success-glow); color:var(--success); border:1px solid var(--success); font-weight:bold;">Authorized</span>
+                    ` : `
+                      <span class="badge warning-badge" style="font-size:10px; padding:4px 8px; border-radius:4px; background:var(--warning-glow); color:var(--warning); border:1px solid var(--warning); font-weight:bold;">Needs Auth</span>
+                    `}
+                  </div>
+                </div>
+
+                ${!isAuthorized ? `
+                  <button id="local-folder-auth-btn" class="btn btn-accent" style="padding:10px 16px; width:100%; display:inline-flex; align-items:center; justify-content:center; gap:8px;">
+                    <i data-lucide="key"></i>
+                    <span>Authorize Folder Access</span>
+                  </button>
+                ` : `
+                  <div style="display:flex; align-items:center; gap:8px; border-top:1px solid var(--glass-border); padding-top:12px; margin-top:4px;">
+                    <input type="checkbox" id="local-folder-autosave-check" ${db.isLocalDirAutoSave ? 'checked' : ''} style="width:16px; height:16px; cursor:pointer;">
+                    <label for="local-folder-autosave-check" style="font-size:12px; margin:0; cursor:pointer; display:flex; align-items:center; gap:4px;">Auto-save changes in real-time</label>
+                  </div>
+
+                  <div style="display:flex; gap:10px; margin-top:4px; border-top:1px solid var(--glass-border); padding-top:12px;">
+                    <button id="local-folder-import-btn" class="btn btn-secondary" style="flex:1; padding:8px 12px; font-size:12px; display:inline-flex; align-items:center; justify-content:center; gap:6px;" title="Load data from JSON files in the folder">
+                      <i data-lucide="download" style="width:14px; height:14px;"></i>
+                      <span>Import</span>
+                    </button>
+                    <button id="local-folder-export-btn" class="btn btn-secondary" style="flex:1; padding:8px 12px; font-size:12px; display:inline-flex; align-items:center; justify-content:center; gap:6px;" title="Save current database to files in the folder">
+                      <i data-lucide="upload" style="width:14px; height:14px;"></i>
+                      <span>Export</span>
+                    </button>
+                  </div>
+                `}
+
+                <button id="local-folder-disconnect-btn" class="btn btn-secondary" style="padding:8px 12px; font-size:12px; width:100%; display:inline-flex; align-items:center; justify-content:center; gap:6px; border-color:var(--danger); color:var(--danger); margin-top:4px;">
+                  <i data-lucide="folder-minus" style="width:14px; height:14px;"></i>
+                  <span>Disconnect Folder</span>
+                </button>
+              </div>
+            `}
+          </div>
+        </div>
+
         <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
           <div>
             <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Data Backups & Exports</h3>
@@ -160,6 +259,34 @@ export async function renderSettings(container) {
             </div>
           </div>
         </div>
+
+        <!-- BYOK AI Cognitive Layer Vault -->
+        <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
+          <div>
+            <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">🧠 BYOK AI Cognitive Layer (OpenRouter / Gemini)</h3>
+            <p class="muted-text" style="font-size:12px;">Link your custom OpenRouter or Google Gemini API keys to power local-first vision extraction of 2D/3D design configurations from blueprints.</p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div class="input-group" style="margin-bottom:0;">
+              <label>OpenRouter API Key (BYOK Vault)</label>
+              <input type="password" id="ai-key" class="form-control-noicon" placeholder="sk-or-v1-..." value="${localStorage.getItem('eva_openrouter_api_key') || ''}">
+            </div>
+            <div class="input-group" style="margin-bottom:0;">
+              <label>Default Vision Model</label>
+              <select id="ai-model" class="form-control-noicon">
+                <option value="google/gemini-2.5-flash" ${localStorage.getItem('eva_openrouter_model') === 'google/gemini-2.5-flash' || !localStorage.getItem('eva_openrouter_model') ? 'selected' : ''}>Google: Gemini 2.5 Flash (Recommended)</option>
+                <option value="google/gemini-2.5-pro" ${localStorage.getItem('eva_openrouter_model') === 'google/gemini-2.5-pro' ? 'selected' : ''}>Google: Gemini 2.5 Pro</option>
+                <option value="meta-llama/llama-3.2-11b-vision-instruct" ${localStorage.getItem('eva_openrouter_model') === 'meta-llama/llama-3.2-11b-vision-instruct' ? 'selected' : ''}>Llama 3.2 11B Vision</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:12px;">
+              <button id="ai-save-btn" class="btn btn-primary" style="flex-grow:1; padding:10px 16px;">Save API Configuration</button>
+              ${localStorage.getItem('eva_openrouter_api_key') ? `<button id="ai-clear-btn" class="btn btn-secondary" style="padding:10px 16px;">Clear Key</button>` : ''}
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   `;
@@ -385,5 +512,247 @@ function bindSettingsEvents(container) {
     document.body.removeChild(link);
 
     app.showToast('Backup Complete', 'Downloaded chronological warehouse ledger logs as CSV successfully.', 'success');
+  });
+
+  // 8. BYOK AI Configuration Save
+  document.getElementById('ai-save-btn')?.addEventListener('click', () => {
+    const key = document.getElementById('ai-key')?.value.trim();
+    const model = document.getElementById('ai-model')?.value;
+
+    if (key) {
+      localStorage.setItem('eva_openrouter_api_key', key);
+    }
+    if (model) {
+      localStorage.setItem('eva_openrouter_model', model);
+    }
+
+    app.showToast('API Vault Synchronized', 'API key and default model saved securely in local storage.', 'success');
+    renderSettings(container);
+  });
+
+  document.getElementById('ai-clear-btn')?.addEventListener('click', () => {
+    localStorage.removeItem('eva_openrouter_api_key');
+    app.showToast('Key Revoked', 'API key has been deleted from local vault storage.', 'info');
+    renderSettings(container);
+  });
+
+  // 9. Local Folder Database Event Listeners
+  
+  // Select Local Folder
+  document.getElementById('local-folder-select-btn')?.addEventListener('click', async () => {
+    try {
+      const handle = await window.showDirectoryPicker();
+      await db.setLocalDirHandle(handle);
+      
+      app.showToast('Folder Connected', `Connected to local folder: ${handle.name}`, 'success');
+      
+      const authorized = await db.verifyPermission(true);
+      if (authorized) {
+        // Check if folder contains any database files
+        let hasFiles = false;
+        try {
+          for await (const entry of handle.values()) {
+            if (entry.name.endsWith('.json')) {
+              hasFiles = true;
+              break;
+            }
+          }
+        } catch (e) {}
+
+        if (hasFiles) {
+          // Open Modal using App Coordinator Modal System to ask if they want to import or export
+          const modalContent = `
+            <div style="display:flex; flex-direction:column; gap:16px;">
+              <p>The folder <strong>${handle.name}</strong> contains existing database files. How would you like to initialize the database?</p>
+              <div style="display:flex; flex-direction:column; gap:12px; margin-top:10px;">
+                <button id="modal-import-btn" class="btn btn-primary" style="text-align:left; justify-content:flex-start; padding:12px; display:block; width:100%;">
+                  📥 <strong>Import from Folder</strong>
+                  <div style="font-size:11px; font-weight:normal; opacity:0.8; margin-top:4px;">Overwrite the current browser database with the data from the folder.</div>
+                </button>
+                <button id="modal-export-btn" class="btn btn-secondary" style="text-align:left; justify-content:flex-start; padding:12px; display:block; width:100%;">
+                  📤 <strong>Export to Folder</strong>
+                  <div style="font-size:11px; font-weight:normal; opacity:0.8; margin-top:4px;">Keep the browser database and overwrite the files in the folder.</div>
+                </button>
+              </div>
+            </div>
+          `;
+          app.openModal('Database Sync Choice', modalContent);
+
+          document.getElementById('modal-import-btn')?.addEventListener('click', async () => {
+            app.closeModal();
+            app.showToast('Importing', 'Loading data from local folder...', 'info');
+            try {
+              const importedCount = await db.importAllFromFolder();
+              app.showToast('Import Complete', `Successfully loaded ${importedCount} tables from folder.`, 'success');
+            } catch (err) {
+              app.showToast('Import Failed', err.message, 'danger');
+            }
+            await renderSettings(container);
+          });
+
+          document.getElementById('modal-export-btn')?.addEventListener('click', async () => {
+            app.closeModal();
+            app.showToast('Exporting', 'Writing database to local folder...', 'info');
+            try {
+              await db.exportAllToFolder();
+              app.showToast('Export Complete', 'Successfully exported all tables to folder.', 'success');
+            } catch (err) {
+              app.showToast('Export Failed', err.message, 'danger');
+            }
+            await renderSettings(container);
+          });
+        } else {
+          // Folder is empty, export by default
+          app.showToast('Exporting', 'Empty folder. Writing initial database schema...', 'info');
+          await db.exportAllToFolder();
+          app.showToast('Export Complete', 'Exported initial database state to local folder.', 'success');
+        }
+      }
+      await renderSettings(container);
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error(e);
+        app.showToast('Connection Error', e.message, 'danger');
+      }
+    }
+  });
+
+  // Authorize Folder Access
+  document.getElementById('local-folder-auth-btn')?.addEventListener('click', async () => {
+    try {
+      const authorized = await db.requestPermission(true);
+      if (authorized) {
+        app.showToast('Access Granted', 'Successfully authorized database folder access.', 'success');
+      } else {
+        app.showToast('Access Denied', 'Folder access was not authorized.', 'warning');
+      }
+      await renderSettings(container);
+    } catch (e) {
+      console.error(e);
+      app.showToast('Authorization Error', e.message, 'danger');
+    }
+  });
+
+  // Disconnect Folder
+  document.getElementById('local-folder-disconnect-btn')?.addEventListener('click', async () => {
+    await db.setLocalDirHandle(null);
+    db.localDirPath = null;
+    await db.setSetting('local_dir_path', null);
+    app.showToast('Disconnected', 'Local folder disconnected. Data remains in browser IndexedDB.', 'info');
+    await renderSettings(container);
+  });
+
+  // Connect via Manual Path
+  document.getElementById('local-folder-path-connect-btn')?.addEventListener('click', async () => {
+    const dirPath = document.getElementById('local-folder-path-input')?.value.trim();
+    if (!dirPath) {
+      app.showToast('Validation Error', 'Please enter a valid folder path.', 'danger');
+      return;
+    }
+    
+    app.showToast('Connecting', 'Verifying folder path via local server...', 'info');
+    try {
+      const tempPath = db.localDirPath;
+      db.localDirPath = dirPath;
+      const verified = await db.verifyPermission(true);
+      if (verified) {
+        await db.setSetting('local_dir_path', dirPath);
+        await db.setSetting('local_dir_autosave', db.isLocalDirAutoSave);
+        await db.setLocalDirHandle(null);
+        db.localDirPath = dirPath;
+        app.showToast('Folder Connected', `Connected via server API to: ${dirPath}`, 'success');
+
+        const res = await fetch(`/api/local-db/check?path=${encodeURIComponent(dirPath)}`);
+        const json = await res.json();
+        const hasFiles = json.files && json.files.length > 0;
+
+        if (hasFiles) {
+          const modalContent = `
+            <div style="display:flex; flex-direction:column; gap:16px;">
+              <p>The folder <strong>${dirPath}</strong> contains existing database files. How would you like to initialize the database?</p>
+              <div style="display:flex; flex-direction:column; gap:12px; margin-top:10px;">
+                <button id="modal-import-btn" class="btn btn-primary" style="text-align:left; justify-content:flex-start; padding:12px; display:block; width:100%;">
+                  📥 <strong>Import from Folder</strong>
+                  <div style="font-size:11px; font-weight:normal; opacity:0.8; margin-top:4px;">Overwrite the current browser database with the data from the folder.</div>
+                </button>
+                <button id="modal-export-btn" class="btn btn-secondary" style="text-align:left; justify-content:flex-start; padding:12px; display:block; width:100%;">
+                  📤 <strong>Export to Folder</strong>
+                  <div style="font-size:11px; font-weight:normal; opacity:0.8; margin-top:4px;">Keep the browser database and overwrite the files in the folder.</div>
+                </button>
+              </div>
+            </div>
+          `;
+          app.openModal('Database Sync Choice', modalContent);
+
+          document.getElementById('modal-import-btn')?.addEventListener('click', async () => {
+            app.closeModal();
+            app.showToast('Importing', 'Loading data from local folder...', 'info');
+            try {
+              const importedCount = await db.importAllFromFolder();
+              app.showToast('Import Complete', `Successfully loaded ${importedCount} tables from folder.`, 'success');
+            } catch (err) {
+              app.showToast('Import Failed', err.message, 'danger');
+            }
+            await renderSettings(container);
+          });
+
+          document.getElementById('modal-export-btn')?.addEventListener('click', async () => {
+            app.closeModal();
+            app.showToast('Exporting', 'Writing database to local folder...', 'info');
+            try {
+              await db.exportAllToFolder();
+              app.showToast('Export Complete', 'Successfully exported all tables to folder.', 'success');
+            } catch (err) {
+              app.showToast('Export Failed', err.message, 'danger');
+            }
+            await renderSettings(container);
+          });
+        } else {
+          app.showToast('Exporting', 'Empty folder. Writing initial database schema...', 'info');
+          await db.exportAllToFolder();
+          app.showToast('Export Complete', 'Exported initial database state to local folder.', 'success');
+        }
+      } else {
+        db.localDirPath = tempPath;
+        app.showToast('Connection Failed', `Folder path does not exist on your computer. Please create the folder first or verify the path: ${dirPath}`, 'danger');
+      }
+      await renderSettings(container);
+    } catch (e) {
+      console.error(e);
+      app.showToast('Connection Error', e.message, 'danger');
+    }
+  });
+
+  // Import from Folder
+  document.getElementById('local-folder-import-btn')?.addEventListener('click', async () => {
+    const confirm = window.confirm('Are you sure you want to IMPORT? This will OVERWRITE all your current browser data with data from the folder!');
+    if (!confirm) return;
+
+    try {
+      app.showToast('Importing', 'Loading data from local folder...', 'info');
+      const importedCount = await db.importAllFromFolder();
+      app.showToast('Import Complete', `Successfully loaded ${importedCount} tables from folder.`, 'success');
+      await renderSettings(container);
+    } catch (e) {
+      app.showToast('Import Failed', e.message, 'danger');
+    }
+  });
+
+  // Export to Folder
+  document.getElementById('local-folder-export-btn')?.addEventListener('click', async () => {
+    try {
+      app.showToast('Exporting', 'Writing all tables to folder...', 'info');
+      await db.exportAllToFolder();
+      app.showToast('Export Complete', 'Successfully exported all tables to folder.', 'success');
+    } catch (e) {
+      app.showToast('Export Failed', e.message, 'danger');
+    }
+  });
+
+  // Toggle Auto-save
+  document.getElementById('local-folder-autosave-check')?.addEventListener('change', async (e) => {
+    db.isLocalDirAutoSave = e.target.checked;
+    await db.setSetting('local_dir_autosave', db.isLocalDirAutoSave);
+    app.showToast('Setting Saved', `Auto-save ${db.isLocalDirAutoSave ? 'enabled' : 'disabled'}.`, 'success');
   });
 }

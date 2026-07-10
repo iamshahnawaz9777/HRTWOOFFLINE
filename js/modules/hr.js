@@ -13,6 +13,7 @@ const app = new Proxy({}, {
 
 let activeHRTab = 'directory';
 const TODAY_STR = '2026-05-26'; // Mock constant system date
+let selectedAttendanceDate = TODAY_STR;
 
 /**
  * Main HR Module Entry
@@ -33,11 +34,11 @@ export async function renderHR(container, routeParts = []) {
             <span>Daily Attendance</span>
           </button>
           <button class="tab-btn ${activeHRTab === 'leaves' ? 'active' : ''}" data-tab="leaves">
-            <i data-lucide="plane-takeoff" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:6px;"></i>
-            <span>Leave Requests</span>
+            <i data-lucide="banknote" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:6px;"></i>
+            <span>Salary Advances</span>
           </button>
           <button class="tab-btn ${activeHRTab === 'payroll' ? 'active' : ''}" data-tab="payroll">
-            <i data-lucide="banknote" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:6px;"></i>
+            <i data-lucide="wallet" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:6px;"></i>
             <span>Departments & Payroll</span>
           </button>
         </div>
@@ -89,7 +90,7 @@ async function renderActiveHRTab() {
         await renderAttendanceTab(viewport);
         break;
       case 'leaves':
-        await renderLeavesTab(viewport);
+        await renderAdvancesTab(viewport);
         break;
       case 'payroll':
         await renderPayrollTab(viewport);
@@ -238,8 +239,8 @@ async function renderDirectoryTab(container) {
             <input type="date" id="new-emp-join" class="form-control-noicon" value="2026-05-26">
           </div>
           <div class="input-group">
-            <label>Starting Salary ($) <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-            <input type="number" id="new-emp-salary" class="form-control-noicon" value="3500">
+            <label>Starting Salary (₹) <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+            <input type="number" id="new-emp-salary" class="form-control-noicon" value="35000">
           </div>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Register Profile</button>
@@ -421,7 +422,7 @@ async function openEmployeeProfileModal(emp) {
       <div style="display:flex; gap:6px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
         <button class="tab-btn modal-prof-tab ${activeProfileTab === 'info' ? 'active' : ''}" data-ptab="info" style="padding:6px 12px; font-size:12px;">General Info</button>
         <button class="tab-btn modal-prof-tab ${activeProfileTab === 'attendance' ? 'active' : ''}" data-ptab="attendance" style="padding:6px 12px; font-size:12px;">Attendance History</button>
-        <button class="tab-btn modal-prof-tab ${activeProfileTab === 'leaves' ? 'active' : ''}" data-ptab="leaves" style="padding:6px 12px; font-size:12px;">Leave Ledger</button>
+        <button class="tab-btn modal-prof-tab ${activeProfileTab === 'leaves' ? 'active' : ''}" data-ptab="leaves" style="padding:6px 12px; font-size:12px;">Advances Taken</button>
         <button class="tab-btn modal-prof-tab ${activeProfileTab === 'documents' ? 'active' : ''}" data-ptab="documents" style="padding:6px 12px; font-size:12px;">Documents (${emp.documents.length})</button>
       </div>
 
@@ -434,9 +435,13 @@ async function openEmployeeProfileModal(emp) {
 
   app.openModal('Employee Dossier', '', '680px');
 
-  const updateProfileTabRender = () => {
+  const updateProfileTabRender = async () => {
     const modalViewport = document.getElementById('modal-profile-tab-viewport');
     if (!modalViewport) return;
+
+    const advances = await db.getAll('leaves');
+    const empAdvances = advances.filter(a => a.employeeId === emp.id);
+    const outstandingSum = empAdvances.filter(a => a.status === 'Outstanding').reduce((sum, a) => sum + parseFloat(a.amount || 0), 0);
 
     if (activeProfileTab === 'info') {
       modalViewport.innerHTML = `
@@ -444,57 +449,37 @@ async function openEmployeeProfileModal(emp) {
           <div class="info-field-item"><label>ID Number</label><span>${emp.id}</span></div>
           <div class="info-field-item"><label>Email Contact</label><span>${emp.contact}</span></div>
           <div class="info-field-item"><label>Assigned Role</label><span>${emp.role}</span></div>
-          <div class="info-field-item"><label>Base Monthly Salary</label><span>$${emp.salary}</span></div>
-          <div class="info-field-item"><label>Annual Leave Balance</label><span>${emp.leaveBalance} days remaining</span></div>
+          <div class="info-field-item"><label>Base Monthly Salary</label><span>₹${emp.salary}</span></div>
+          <div class="info-field-item"><label>Outstanding Advance</label><span class="danger-text">₹${outstandingSum.toLocaleString()}</span></div>
         </div>
       `;
     } else if (activeProfileTab === 'attendance') {
-      modalViewport.innerHTML = `
-        <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
-          <table class="custom-table" style="font-size:12px;">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Check-In</th>
-                <th>Check-Out</th>
-                <th>Daily Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${empAtt.length > 0 ? empAtt.map(a => `
-                <tr>
-                  <td><code>${a.date}</code></td>
-                  <td>${a.checkIn || '-'}</td>
-                  <td>${a.checkOut || '-'}</td>
-                  <td><span class="badge ${a.status === 'Present' ? 'success' : 'danger'}">${a.status}</span></td>
-                </tr>
-              `).join('') : '<tr><td colspan="4" class="text-center muted-text">No attendance records clocked.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      `;
+      modalViewport.innerHTML = `<div id="employee-calendar-widget" style="padding: 10px 0;"></div>`;
+      const calendarContainer = document.getElementById('employee-calendar-widget');
+      const today = new Date(TODAY_STR);
+      renderEmployeeMonthlyCalendar(emp, calendarContainer, today.getFullYear(), today.getMonth());
     } else if (activeProfileTab === 'leaves') {
       modalViewport.innerHTML = `
-        <div style="margin-bottom:12px; font-weight:600; font-size:13px;">Leave Allocation Balance: <span class="primary-text">${emp.leaveBalance} days</span></div>
+        <div style="margin-bottom:12px; font-weight:600; font-size:13px;">Total Outstanding Advance: <span class="danger-text">₹${outstandingSum.toLocaleString()}</span></div>
         <div class="table-responsive" style="max-height:180px; overflow-y:auto;">
           <table class="custom-table" style="font-size:12px;">
             <thead>
               <tr>
-                <th>Dates</th>
-                <th>Type</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Purpose</th>
                 <th>Status</th>
-                <th>Reason Description</th>
               </tr>
             </thead>
             <tbody>
-              ${empLeaves.length > 0 ? empLeaves.map(l => `
+              ${empAdvances.length > 0 ? empAdvances.map(a => `
                 <tr>
-                  <td><code>${l.startDate} to ${l.endDate}</code></td>
-                  <td>${l.type}</td>
-                  <td><span class="badge ${l.status === 'Approved' ? 'success' : 'warning'}">${l.status}</span></td>
-                  <td>${l.reason}</td>
+                  <td><code>${a.date}</code></td>
+                  <td><strong>₹${parseFloat(a.amount || 0).toLocaleString()}</strong></td>
+                  <td>${a.purpose || 'N/A'}</td>
+                  <td><span class="badge ${a.status === 'Outstanding' ? 'warning' : 'success'}">${a.status}</span></td>
                 </tr>
-              `).join('') : '<tr><td colspan="4" class="text-center muted-text">No leaves applied in database.</td></tr>'}
+              `).join('') : '<tr><td colspan="4" class="text-center muted-text">No advance records in database.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -593,7 +578,7 @@ async function openEditEmployeeModal(emp) {
           <input type="date" id="edit-emp-join" class="form-control-noicon" value="${emp.joiningDate || ''}">
         </div>
         <div class="input-group">
-          <label>Starting Salary ($)</label>
+          <label>Starting Salary (₹)</label>
           <input type="number" id="edit-emp-salary" class="form-control-noicon" value="${emp.salary || 0}">
         </div>
       </div>
@@ -630,75 +615,93 @@ async function renderAttendanceTab(container) {
   const employees = await db.getAll('employees');
   const attendance = await db.getAll('attendance');
 
-  // Filter attendance record logged for today constant
-  const todayAttendance = attendance.filter(a => a.date === TODAY_STR);
+  // Filter attendance exceptions logged for the selected date
+  const selectedDateExceptions = attendance.filter(a => a.date === selectedAttendanceDate);
+
+  const totalCount = employees.length;
+  const absentCount = selectedDateExceptions.filter(a => a.status === 'Absent').length;
+  const halfDayCount = selectedDateExceptions.filter(a => a.status === 'Half Day').length;
+  const presentCount = totalCount - absentCount - halfDayCount;
 
   container.innerHTML = `
-    <div style="display:grid; grid-template-columns:1fr 2fr; gap:24px;">
-      <!-- Console check buttons -->
-      <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
-        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700; border-bottom:1px solid var(--glass-border); padding-bottom:8px;">Terminal Clock Console</h3>
-        <p class="muted-text" style="font-size:12px;">Simulate biometric log events for scheduled personnel for today (<code>${TODAY_STR}</code>).</p>
+    <div style="display:grid; grid-template-columns:1fr 1.5fr; gap:24px;">
+      <!-- Mark Attendance Exception Form -->
+      <div class="glass-card" style="display:flex; flex-direction:column; gap:16px; height:fit-content;">
+        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700; border-bottom:1px solid var(--glass-border); padding-bottom:8px;">Mark Attendance Exception</h3>
         
-        <div class="input-group" style="margin-bottom:0;">
-          <label>Select Staff Member</label>
-          <select id="attendance-clock-staff" class="form-control-noicon">
-            ${employees.map(emp => `<option value="${emp.id}">${emp.name} (${emp.id})</option>`).join('')}
-          </select>
-        </div>
+        <form id="attendance-exception-form" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Select Date</label>
+            <input type="date" id="attendance-date-select" class="form-control-noicon" value="${selectedAttendanceDate}">
+          </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-          <button id="clock-in-btn" class="btn btn-success">
-            <i data-lucide="log-in"></i>
-            <span>Clock In</span>
-          </button>
-          <button id="clock-out-btn" class="btn btn-danger">
-            <i data-lucide="log-out"></i>
-            <span>Clock Out</span>
-          </button>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Select Employee <span style="color:var(--danger); font-size:11px;">*required</span></label>
+            <select id="attendance-employee-select" class="form-control-noicon" required>
+              ${employees.map(emp => `<option value="${emp.id}">${emp.name} (ID: ${emp.id})</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Select Exception Status</label>
+            <select id="attendance-status-select" class="form-control-noicon">
+              <option value="Absent" selected>Absent (Leave)</option>
+              <option value="Half Day">Half Day</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">Record Exception</button>
+        </form>
+
+        <div style="border-top:1px solid var(--glass-border); padding-top:12px; display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:11px; font-weight:700; color:var(--text-secondary); text-transform:uppercase;">Daily Statistics:</span>
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; text-align:center; font-size:11px;">
+            <div style="padding:4px; background:rgba(34,197,94,0.08); border-radius:4px;">
+              <span class="muted-text" style="font-size:9px;">Present</span>
+              <div class="success-text" style="font-weight:700;">${presentCount}</div>
+            </div>
+            <div style="padding:4px; background:rgba(234,179,8,0.08); border-radius:4px;">
+              <span class="muted-text" style="font-size:9px;">Half Day</span>
+              <div class="warning-text" style="font-weight:700;">${halfDayCount}</div>
+            </div>
+            <div style="padding:4px; background:rgba(239,68,68,0.08); border-radius:4px;">
+              <span class="muted-text" style="font-size:9px;">Absent</span>
+              <div class="danger-text" style="font-weight:700;">${absentCount}</div>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Logs overview -->
       <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Clock logs for ${TODAY_STR}</h3>
-          <span class="badge primary">${todayAttendance.length} / ${employees.length} Checked In</span>
-        </div>
+        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700; border-bottom:1px solid var(--glass-border); padding-bottom:8px;">Logged Exceptions for ${selectedAttendanceDate}</h3>
+        <p class="muted-text" style="font-size:12px;">By default, all roster employees are considered <strong>Present</strong>. Only exceptions logged for this date are listed below.</p>
         
-        <div class="search-input-wrapper">
-          <i data-lucide="search"></i>
-          <input type="text" id="attendance-search" placeholder="Search logs by employee name..." class="form-control" style="padding-top:8px; padding-bottom:8px;">
-        </div>
-
         <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
           <table class="custom-table" style="font-size:13px;" id="attendance-table">
             <thead>
               <tr>
                 <th>Employee</th>
-                <th>Check In</th>
-                <th>Check Out</th>
-                <th>Work Status</th>
+                <th>Logged Exception</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody id="attendance-list-body">
-              ${employees.map(emp => {
-    const clock = todayAttendance.find(a => a.employeeId === emp.id);
-    return `
+              ${selectedDateExceptions.length > 0 ? selectedDateExceptions.map(exc => {
+                const emp = employees.find(e => e.id === exc.employeeId);
+                const badgeClass = exc.status === 'Absent' ? 'danger' : 'warning';
+                return `
                   <tr>
-                    <td><strong>${emp.name}</strong> <span class="muted-text" style="font-size:11px; display:block;"><code>${emp.id}</code></span></td>
-                    <td>${clock ? clock.checkIn : '<span class="muted-text">-</span>'}</td>
-                    <td>${clock && clock.checkOut ? clock.checkOut : '<span class="muted-text">-</span>'}</td>
+                    <td><strong>${emp ? emp.name : exc.employeeId}</strong> <span class="muted-text" style="font-size:11px; display:block;"><code>${exc.employeeId}</code></span></td>
+                    <td><span class="badge ${badgeClass}">${exc.status}</span></td>
                     <td>
-                      ${clock ? `
-                        <span class="badge ${clock.checkOut ? 'success' : 'warning'}">
-                          ${clock.checkOut ? 'Completed' : 'Working'}
-                        </span>
-                      ` : '<span class="badge secondary">Absent</span>'}
+                      <button class="btn btn-secondary remove-exception-btn" data-id="${exc.id}" style="padding:4px 8px; font-size:11px;">
+                        Reset to Present
+                      </button>
                     </td>
                   </tr>
                 `;
-  }).join('')}
+              }).join('') : '<tr><td colspan="3" class="text-center muted-text" style="padding:24px 0;">No attendance exceptions logged. Everyone is Present today!</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -706,191 +709,269 @@ async function renderAttendanceTab(container) {
     </div>
   `;
 
-  // Bind Attendance Search filter
-  const searchInput = document.getElementById('attendance-search');
-  searchInput?.addEventListener('input', (e) => {
-    const q = e.target.value.toLowerCase();
-    document.querySelectorAll('#attendance-list-body tr').forEach(row => {
-      const txt = row.innerText.toLowerCase();
-      if (txt.includes(q)) {
-        row.classList.remove('hidden');
-      } else {
-        row.classList.add('hidden');
-      }
-    });
+  // Bind Date selection change
+  document.getElementById('attendance-date-select')?.addEventListener('change', async (e) => {
+    selectedAttendanceDate = e.target.value;
+    await renderActiveHRTab();
   });
 
-  // Bind Clock In Action
-  document.getElementById('clock-in-btn').addEventListener('click', async () => {
-    const empId = document.getElementById('attendance-clock-staff').value;
-    const existing = todayAttendance.find(a => a.employeeId === empId);
+  // Bind Submit Exception
+  document.getElementById('attendance-exception-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const empId = document.getElementById('attendance-employee-select').value;
+    const status = document.getElementById('attendance-status-select').value;
+    const date = document.getElementById('attendance-date-select').value;
+    const clockId = `att-${empId}-${date}`;
 
-    if (existing) {
-      app.showToast('Clock Event Blocked', 'This staff member is already clocked in today.', 'warning');
-      return;
-    }
-
-    const clockId = `att-${empId}-${TODAY_STR}`;
-    const newAtt = {
+    const record = {
       id: clockId,
       employeeId: empId,
-      date: TODAY_STR,
-      checkIn: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-      checkOut: '',
-      status: 'Present'
+      date: date,
+      status: status
     };
 
-    await db.put('attendance', newAtt);
-    await sync.queueOperation('attendance', 'insert', newAtt);
+    await db.put('attendance', record);
+    await sync.queueOperation('attendance', 'update', record);
 
-    app.showToast('Clocked In', `Registered Check-In time for employee ${empId}.`, 'success');
+    app.showToast('Exception Recorded', `Successfully marked employee as ${status} on ${date}.`, 'success');
     await renderActiveHRTab();
   });
 
-  // Bind Clock Out Action
-  document.getElementById('clock-out-btn').addEventListener('click', async () => {
-    const empId = document.getElementById('attendance-clock-staff').value;
-    const existing = todayAttendance.find(a => a.employeeId === empId);
+  // Bind Reset to Present / Remove Exception
+  container.querySelectorAll('.remove-exception-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const excId = btn.getAttribute('data-id');
+      await db.delete('attendance', excId);
+      await sync.queueOperation('attendance', 'delete', excId);
 
-    if (!existing) {
-      app.showToast('Clock Event Blocked', 'Cannot register checkout before checkin has occurred.', 'warning');
-      return;
+      app.showToast('Status Reset', 'Attendance status reset to Present.', 'success');
+      await renderActiveHRTab();
+    });
+  });
+}
+
+/**
+ * Helper to render monthly attendance calendar grid
+ */
+async function renderEmployeeMonthlyCalendar(emp, container, year, month) {
+  const attendance = await db.getAll('attendance');
+  const empAtt = attendance.filter(a => a.employeeId === emp.id);
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+
+  let absentCount = 0;
+  let halfDayCount = 0;
+  let presentCount = 0;
+
+  let calendarDaysHTML = '';
+  
+  // Empty grids before start of month
+  for (let i = 0; i < firstDayIndex; i++) {
+    calendarDaysHTML += `<div style="padding:10px; border:1px solid var(--glass-border); opacity:0.2;"></div>`;
+  }
+
+  for (let day = 1; day <= totalDays; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const record = empAtt.find(a => a.date === dateStr);
+    
+    let status = 'Present';
+    let bg = 'rgba(34,197,94,0.15)';
+    let color = 'var(--success-color)';
+    let shortLabel = 'P';
+
+    if (record) {
+      status = record.status;
+      if (status === 'Absent') {
+        bg = 'rgba(239,68,68,0.15)';
+        color = 'var(--danger-color)';
+        shortLabel = 'A';
+        absentCount++;
+      } else if (status === 'Half Day') {
+        bg = 'rgba(234,179,8,0.15)';
+        color = 'var(--warning-color)';
+        shortLabel = 'H';
+        halfDayCount++;
+      }
+    } else {
+      presentCount++;
     }
 
-    if (existing.checkOut) {
-      app.showToast('Clock Event Blocked', 'This staff member is already checked out for today.', 'warning');
-      return;
+    calendarDaysHTML += `
+      <div style="padding:6px 4px; border:1px solid var(--glass-border); background:${bg}; border-radius:4px; display:flex; flex-direction:column; align-items:center; gap:2px; position:relative; min-height:40px; justify-content:center;">
+        <span style="font-size:10px; font-weight:700; color:var(--text-primary);">${day}</span>
+        <span style="font-size:9px; font-weight:800; color:${color};" title="${status}">${shortLabel}</span>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.15); padding:8px 12px; border-radius:6px; border:1px solid var(--glass-border);">
+        <button id="cal-prev-month" class="btn btn-secondary" style="padding:4px 10px; font-size:11px;">&lt; Prev</button>
+        <strong style="font-size:13px; font-family:var(--font-heading);">${monthNames[month]} ${year}</strong>
+        <button id="cal-next-month" class="btn btn-secondary" style="padding:4px 10px; font-size:11px;">Next &gt;</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; text-align:center;">
+        <div style="padding:6px; background:rgba(34,197,94,0.08); border-left:3px solid var(--success-color); border-radius:4px;">
+          <span class="muted-text" style="font-size:10px; text-transform:uppercase;">Present</span>
+          <h4 style="margin:2px 0 0 0; color:var(--success-color);">${presentCount}</h4>
+        </div>
+        <div style="padding:6px; background:rgba(234,179,8,0.08); border-left:3px solid var(--warning-color); border-radius:4px;">
+          <span class="muted-text" style="font-size:10px; text-transform:uppercase;">Half Day</span>
+          <h4 style="margin:2px 0 0 0; color:var(--warning-color);">${halfDayCount}</h4>
+        </div>
+        <div style="padding:6px; background:rgba(239,68,68,0.08); border-left:3px solid var(--danger-color); border-radius:4px;">
+          <span class="muted-text" style="font-size:10px; text-transform:uppercase;">Absent (Leaves)</span>
+          <h4 style="margin:2px 0 0 0; color:var(--danger-color);">${absentCount}</h4>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <div style="display:grid; grid-template-columns:repeat(7, 1fr); text-align:center; font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">
+          <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px;">
+          ${calendarDaysHTML}
+        </div>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('#cal-prev-month').addEventListener('click', () => {
+    let nextMonth = month - 1;
+    let nextYear = year;
+    if (nextMonth < 0) {
+      nextMonth = 11;
+      nextYear--;
     }
+    renderEmployeeMonthlyCalendar(emp, container, nextYear, nextMonth);
+  });
 
-    existing.checkOut = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-
-    await db.put('attendance', existing);
-    await sync.queueOperation('attendance', 'update', existing);
-
-    app.showToast('Clocked Out', `Registered Check-Out time for employee ${empId}. Daily shift complete.`, 'success');
-    await renderActiveHRTab();
+  container.querySelector('#cal-next-month').addEventListener('click', () => {
+    let nextMonth = month + 1;
+    let nextYear = year;
+    if (nextMonth > 11) {
+      nextMonth = 0;
+      nextYear++;
+    }
+    renderEmployeeMonthlyCalendar(emp, container, nextYear, nextMonth);
   });
 }
 
 /* ==========================================================================
-   Tab 3: Leave Requests Management
+   Tab 3: Salary Advances Management
    ========================================================================== */
-async function renderLeavesTab(container) {
-  const leaves = await db.getAll('leaves');
+async function renderAdvancesTab(container) {
+  const advances = await db.getAll('leaves'); // using leaves store
   const employees = await db.getAll('employees');
 
-  const pendingLeaves = leaves.filter(l => l.status === 'Pending');
-  const pastLeaves = leaves.filter(l => l.status !== 'Pending');
+  const outstandingAdvances = advances.filter(a => a.status === 'Outstanding');
+  const settledAdvances = advances.filter(a => a.status === 'Deducted');
 
   container.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 2fr; gap:24px;">
-      <!-- Apply Form -->
+      <!-- Record Advance Form -->
       <div class="glass-card" style="display:flex; flex-direction:column; gap:16px; height:fit-content;">
-        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700; border-bottom:1px solid var(--glass-border); padding-bottom:8px;">File Leave Application</h3>
-        <form id="apply-leave-form" style="display:flex; flex-direction:column; gap:12px;">
+        <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700; border-bottom:1px solid var(--glass-border); padding-bottom:8px;">Record Salary Advance</h3>
+        <form id="record-advance-form" style="display:flex; flex-direction:column; gap:12px;">
           <div class="input-group" style="margin-bottom:0;">
-            <label>Requesting Employee <span style="color:var(--danger); font-size:11px;">*required</span></label>
-            <select id="leave-staff" class="form-control-noicon" required>
-              ${employees.map(emp => `<option value="${emp.id}">${emp.name} (Balance: ${emp.leaveBalance} days)</option>`).join('')}
+            <label>Employee <span style="color:var(--danger); font-size:11px;">*required</span></label>
+            <select id="advance-staff" class="form-control-noicon" required>
+              ${employees.map(emp => `<option value="${emp.id}">${emp.name} (ID: ${emp.id})</option>`).join('')}
             </select>
           </div>
 
           <div class="input-group" style="margin-bottom:0;">
-            <label>Leave Category Type <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-            <select id="leave-type" class="form-control-noicon">
-              <option value="Annual Leave">Annual Leave</option>
-              <option value="Medical Leave">Medical Leave</option>
-              <option value="Casual Leave">Casual Leave</option>
-            </select>
-          </div>
-
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div class="input-group" style="margin-bottom:0;">
-              <label>Start Date <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-              <input type="date" id="leave-start" class="form-control-noicon" value="2026-06-10">
-            </div>
-            <div class="input-group" style="margin-bottom:0;">
-              <label>End Date <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-              <input type="date" id="leave-end" class="form-control-noicon" value="2026-06-12">
-            </div>
+            <label>Advance Amount (₹) <span style="color:var(--danger); font-size:11px;">*required</span></label>
+            <input type="number" id="advance-amount" class="form-control-noicon" min="1" placeholder="e.g. 5000" required>
           </div>
 
           <div class="input-group" style="margin-bottom:0;">
-            <label>Reason Description <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-            <textarea id="leave-reason" class="form-control-noicon" rows="2" placeholder="State reason for absence..."></textarea>
+            <label>Date <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+            <input type="date" id="advance-date" class="form-control-noicon" value="${new Date().toISOString().split('T')[0]}">
           </div>
 
-          <button type="submit" class="btn btn-primary btn-block">Submit Application</button>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>Purpose / Description <span class="muted-text" style="font-size:10px;">(optional)</span></label>
+            <textarea id="advance-purpose" class="form-control-noicon" rows="2" placeholder="State purpose of advance..."></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">Record Advance</button>
         </form>
       </div>
 
-      <!-- Action Approval Dashboard & Ledger Lists -->
+      <!-- Advances Ledger -->
       <div style="display:flex; flex-direction:column; gap:24px;">
         <div class="search-input-wrapper">
           <i data-lucide="search"></i>
-          <input type="text" id="leaves-search" placeholder="Search leave requests by employee name..." class="form-control" style="padding-top:8px; padding-bottom:8px;">
+          <input type="text" id="advances-search" placeholder="Search advances by employee name..." class="form-control" style="padding-top:8px; padding-bottom:8px;">
         </div>
 
-        <!-- Authorization Queue -->
+        <!-- Outstanding Queue -->
         <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
-          <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Applications Awaiting Approval</h3>
+          <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Outstanding Advances</h3>
           <div class="table-responsive">
             <table class="custom-table" style="font-size:13px;">
               <thead>
                 <tr>
                   <th>Employee</th>
-                  <th>Details</th>
-                  <th>Dates Range</th>
-                  <th>Decision Actions</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                  <th>Purpose</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
-              <tbody id="leaves-pending-body">
-                ${pendingLeaves.length > 0 ? pendingLeaves.map(lv => {
-    const emp = employees.find(e => e.id === lv.employeeId);
-    return `
+              <tbody id="advances-outstanding-body">
+                ${outstandingAdvances.length > 0 ? outstandingAdvances.map(adv => {
+                  const emp = employees.find(e => e.id === adv.employeeId);
+                  return `
                     <tr>
-                      <td><strong>${emp ? emp.name : lv.employeeId}</strong> <span class="muted-text" style="font-size:11px; display:block;">Balance: ${emp ? emp.leaveBalance : 0} days</span></td>
-                      <td><strong>${lv.type}</strong><span style="display:block; font-size:11px;" class="muted-text">"${lv.reason}"</span></td>
-                      <td><code>${lv.startDate} to ${lv.endDate}</code></td>
-                      <td style="display:flex; gap:8px;">
-                        <button class="btn btn-success leave-approve-btn" data-id="${lv.id}" style="padding:4px 8px; font-size:11px;">Approve</button>
-                        <button class="btn btn-danger leave-reject-btn" data-id="${lv.id}" style="padding:4px 8px; font-size:11px;">Reject</button>
+                      <td><strong>${emp ? emp.name : adv.employeeId}</strong> <span class="muted-text" style="font-size:11px; display:block;">ID: ${adv.employeeId}</span></td>
+                      <td><strong class="warning-text">₹${parseFloat(adv.amount || 0).toLocaleString()}</strong></td>
+                      <td><code>${adv.date}</code></td>
+                      <td><span style="font-size:11px;" class="muted-text">"${adv.purpose || 'N/A'}"</span></td>
+                      <td>
+                        <button class="btn btn-success advance-deduct-btn" data-id="${adv.id}" style="padding:4px 8px; font-size:11px;">Deduct from Salary</button>
                       </td>
                     </tr>
                   `;
-  }).join('') : '<tr><td colspan="4" class="text-center muted-text" style="padding:16px 0;">No pending requests in queue.</td></tr>'}
+                }).join('') : '<tr><td colspan="5" class="text-center muted-text" style="padding:16px 0;">No outstanding advances.</td></tr>'}
               </tbody>
             </table>
           </div>
         </div>
 
-        <!-- Ledger History -->
+        <!-- Settle Ledger History -->
         <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
-          <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Leave Requests History</h3>
+          <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Deducted / Settle History</h3>
           <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
             <table class="custom-table" style="font-size:12px;">
               <thead>
                 <tr>
                   <th>Employee</th>
-                  <th>Type</th>
-                  <th>Dates</th>
-                  <th>Approved By</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                  <th>Purpose</th>
                   <th>Status</th>
                 </tr>
               </thead>
-              <tbody id="leaves-history-body">
-                ${pastLeaves.length > 0 ? pastLeaves.map(lv => {
-    const emp = employees.find(e => e.id === lv.employeeId);
-    return `
+              <tbody id="advances-history-body">
+                ${settledAdvances.length > 0 ? settledAdvances.map(adv => {
+                  const emp = employees.find(e => e.id === adv.employeeId);
+                  return `
                     <tr>
-                      <td><strong>${emp ? emp.name : lv.employeeId}</strong></td>
-                      <td>${lv.type}</td>
-                      <td><code>${lv.startDate} to ${lv.endDate}</code></td>
-                      <td>${lv.approvedBy || '-'}</td>
-                      <td><span class="badge ${lv.status === 'Approved' ? 'success' : 'danger'}">${lv.status}</span></td>
+                      <td><strong>${emp ? emp.name : adv.employeeId}</strong></td>
+                      <td><strong class="success-text">₹${parseFloat(adv.amount || 0).toLocaleString()}</strong></td>
+                      <td><code>${adv.date}</code></td>
+                      <td><span class="muted-text">${adv.purpose || 'N/A'}</span></td>
+                      <td><span class="badge success">Deducted</span></td>
                     </tr>
                   `;
-  }).join('') : '<tr><td colspan="5" class="text-center muted-text">No archived ledger entries.</td></tr>'}
+                }).join('') : '<tr><td colspan="5" class="text-center muted-text" style="padding:16px 0;">No settled advances.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -899,14 +980,12 @@ async function renderLeavesTab(container) {
     </div>
   `;
 
-  // Bind Leaves Search filter
-  const searchInput = document.getElementById('leaves-search');
+  // Bind Search Filter
+  const searchInput = document.getElementById('advances-search');
   searchInput?.addEventListener('input', (e) => {
     const q = e.target.value.toLowerCase();
-    document.querySelectorAll('#leaves-pending-body tr, #leaves-history-body tr').forEach(row => {
-      // Don't hide the "No pending requests" or "No archived entries" rows
+    document.querySelectorAll('#advances-outstanding-body tr, #advances-history-body tr').forEach(row => {
       if (row.querySelector('td')?.colSpan > 1) return;
-
       const txt = row.innerText.toLowerCase();
       if (txt.includes(q)) {
         row.classList.remove('hidden');
@@ -917,76 +996,38 @@ async function renderLeavesTab(container) {
   });
 
   // Bind Submit Application
-  document.getElementById('apply-leave-form').addEventListener('submit', async (e) => {
+  document.getElementById('record-advance-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const employeeId = document.getElementById('leave-staff').value;
-    const type = document.getElementById('leave-type').value || 'Annual Leave';
-    const startDate = document.getElementById('leave-start').value || TODAY_STR;
-    const endDate = document.getElementById('leave-end').value || TODAY_STR;
-    const reason = document.getElementById('leave-reason').value || '';
+    const employeeId = document.getElementById('advance-staff').value;
+    const amount = parseFloat(document.getElementById('advance-amount').value) || 0;
+    const date = document.getElementById('advance-date').value || new Date().toISOString().split('T')[0];
+    const purpose = document.getElementById('advance-purpose').value || '';
 
-    // Check invalid date boundaries (Boundary case!)
-    if (new Date(startDate) > new Date(endDate)) {
-      app.showToast('Leave Date Error', 'The selected leave start date cannot occur after the end date.', 'danger');
-      return;
-    }
+    const id = `adv-${Date.now()}`;
+    const newAdvance = { id, employeeId, amount, date, purpose, status: 'Outstanding' };
 
-    const id = `lv-${Date.now()}`;
-    const newLeave = { id, employeeId, type, startDate, endDate, reason, status: 'Pending', approvedBy: '' };
+    await db.put('leaves', newAdvance); // store in leaves
+    await sync.queueOperation('leaves', 'insert', newAdvance);
 
-    await db.put('leaves', newLeave);
-    await sync.queueOperation('leaves', 'insert', newLeave);
-
-    app.showToast('Leave Applied', 'Your request has been routed to HR Managers for approval.', 'success');
+    app.showToast('Advance Recorded', `Successfully recorded ₹${amount.toLocaleString()} advance for employee.`, 'success');
     await renderActiveHRTab();
   });
 
-  // Bind Approve Action (Balance Deductions)
-  container.querySelectorAll('.leave-approve-btn').forEach(btn => {
+  // Bind Deduct Action
+  container.querySelectorAll('.advance-deduct-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const lvId = btn.getAttribute('data-id');
-      const lv = await db.get('leaves', lvId);
-      const emp = await db.get('employees', lv.employeeId);
+      const advId = btn.getAttribute('data-id');
+      const adv = await db.get('leaves', advId);
+      const emp = await db.get('employees', adv.employeeId);
 
-      // Compute number of days requested
-      const start = new Date(lv.startDate);
-      const end = new Date(lv.endDate);
-      const days = Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1;
+      if (confirm(`Are you sure you want to deduct ₹${parseFloat(adv.amount).toLocaleString()} from ${emp.name}'s salary?`)) {
+        adv.status = 'Deducted';
+        await db.put('leaves', adv);
+        await sync.queueOperation('leaves', 'update', adv);
 
-      if (emp.leaveBalance < days) {
-        const proceed = confirm(`Warning: Employee has only ${emp.leaveBalance} days remaining, but requested ${days} days. Force approve?`);
-        if (!proceed) return;
+        app.showToast('Advance Settled', `Deducted ₹${parseFloat(adv.amount).toLocaleString()} from ${emp.name}'s salary profile.`, 'success');
+        await renderActiveHRTab();
       }
-
-      // Deduct leave balance
-      emp.leaveBalance = Math.max(0, emp.leaveBalance - days);
-      await db.put('employees', emp);
-      await sync.queueOperation('employees', 'update', emp);
-
-      // Update Leave
-      lv.status = 'Approved';
-      lv.approvedBy = auth.getCurrentUser()?.username || 'HR Manager';
-      await db.put('leaves', lv);
-      await sync.queueOperation('leaves', 'update', lv);
-
-      app.showToast('Request Approved', `Subtracted ${days} days from ${emp.name}'s balance.`, 'success');
-      await renderActiveHRTab();
-    });
-  });
-
-  // Bind Reject Action
-  container.querySelectorAll('.leave-reject-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const lvId = btn.getAttribute('data-id');
-      const lv = await db.get('leaves', lvId);
-
-      lv.status = 'Rejected';
-      lv.approvedBy = auth.getCurrentUser()?.username || 'HR Manager';
-      await db.put('leaves', lv);
-      await sync.queueOperation('leaves', 'update', lv);
-
-      app.showToast('Request Rejected', 'The application has been marked Rejected.', 'info');
-      await renderActiveHRTab();
     });
   });
 }
@@ -996,6 +1037,7 @@ async function renderLeavesTab(container) {
    ========================================================================== */
 async function renderPayrollTab(container) {
   const employees = await db.getAll('employees');
+  const advances = await db.getAll('leaves'); // using leaves store
 
   // Calculate average payroll stats
   const departments = {};
@@ -1026,7 +1068,7 @@ async function renderPayrollTab(container) {
                 <tr>
                   <td><strong>${dept.name}</strong></td>
                   <td>${dept.count} members</td>
-                  <td><strong>$${dept.totalSalary.toLocaleString()}/mo</strong></td>
+                  <td><strong>₹${dept.totalSalary.toLocaleString()}/mo</strong></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1037,7 +1079,7 @@ async function renderPayrollTab(container) {
       <!-- Payroll updates sheet -->
       <div class="glass-card" style="display:flex; flex-direction:column; gap:16px;">
         <h3 style="font-size:15px; font-family:var(--font-heading); font-weight:700;">Quick Salary Adjuster</h3>
-        <p class="muted-text" style="font-size:12px;">Quickly review and modify current employee salary metrics.</p>
+        <p class="muted-text" style="font-size:12px;">Quickly review and modify current employee salary metrics, subtract outstanding advances.</p>
 
         <div class="search-input-wrapper">
           <i data-lucide="search"></i>
@@ -1049,24 +1091,37 @@ async function renderPayrollTab(container) {
             <thead>
               <tr>
                 <th>Employee</th>
-                <th>Current Salary</th>
-                <th>New Value</th>
+                <th>Base Salary</th>
+                <th>Outstanding Advance</th>
+                <th>Net Payable</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody id="payroll-list-body">
-              ${employees.map(emp => `
-                <tr>
-                  <td><strong>${emp.name}</strong> <span style="font-size:11px;" class="muted-text"><code>${emp.id}</code></span></td>
-                  <td><code>$${emp.salary}/mo</code></td>
-                  <td>
-                    <input type="number" id="sal-inp-${emp.id}" value="${emp.salary}" class="form-control-noicon" style="width:100px; padding:4px 8px; font-size:12px;">
-                  </td>
-                  <td>
-                    <button class="btn btn-primary sal-update-btn" data-id="${emp.id}" style="padding:4px 10px; font-size:11px;">Update</button>
-                  </td>
-                </tr>
-              `).join('')}
+              ${employees.map(emp => {
+                const empAdvances = advances.filter(a => a.employeeId === emp.id && a.status === 'Outstanding');
+                const outstanding = empAdvances.reduce((sum, a) => sum + parseFloat(a.amount || 0), 0);
+                const netSalary = Math.max(0, parseFloat(emp.salary || 0) - outstanding);
+                return `
+                  <tr>
+                    <td><strong>${emp.name}</strong> <span style="font-size:11px;" class="muted-text"><code>${emp.id}</code></span></td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:4px;">
+                        <span style="font-size:13px; color:var(--text-secondary);">₹</span>
+                        <input type="number" id="sal-inp-${emp.id}" value="${emp.salary}" class="form-control-noicon" style="width:90px; padding:4px 8px; font-size:12px;">
+                      </div>
+                    </td>
+                    <td><strong class="warning-text">₹${outstanding.toLocaleString()}</strong></td>
+                    <td><strong class="success-text">₹${netSalary.toLocaleString()}</strong></td>
+                    <td>
+                      <div style="display:flex; gap:6px;">
+                        <button class="btn btn-primary sal-update-btn" data-id="${emp.id}" style="padding:4px 8px; font-size:11px;">Update</button>
+                        ${outstanding > 0 ? `<button class="btn btn-success sal-deduct-adv-btn" data-id="${emp.id}" style="padding:4px 8px; font-size:11px;">Deduct</button>` : ''}
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -1106,8 +1161,31 @@ async function renderPayrollTab(container) {
       await db.put('employees', emp);
       await sync.queueOperation('employees', 'update', emp);
 
-      app.showToast('Salary Updated', `Successfully updated ${emp.name}'s monthly salary from $${oldSal} to $${nextSal}.`, 'success');
+      app.showToast('Salary Updated', `Successfully updated ${emp.name}'s monthly salary from ₹${oldSal} to ₹${nextSal}.`, 'success');
       await renderActiveHRTab();
+    });
+  });
+
+  // Bind Deduct Advance from Salary Button
+  container.querySelectorAll('.sal-deduct-adv-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const empId = btn.getAttribute('data-id');
+      const emp = await db.get('employees', empId);
+      const empAdvances = advances.filter(a => a.employeeId === empId && a.status === 'Outstanding');
+      const outstandingSum = empAdvances.reduce((sum, a) => sum + parseFloat(a.amount || 0), 0);
+
+      if (outstandingSum === 0) return;
+
+      if (confirm(`Are you sure you want to deduct ₹${outstandingSum.toLocaleString()} advance from ${emp.name}'s salary? All outstanding advances for this employee will be marked as Settle/Deducted.`)) {
+        for (const adv of empAdvances) {
+          adv.status = 'Deducted';
+          await db.put('leaves', adv);
+          await sync.queueOperation('leaves', 'update', adv);
+        }
+
+        app.showToast('Advances Deducted', `Successfully deducted ₹${outstandingSum.toLocaleString()} from ${emp.name}'s salary payment.`, 'success');
+        await renderActiveHRTab();
+      }
     });
   });
 }

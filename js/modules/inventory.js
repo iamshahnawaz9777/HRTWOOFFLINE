@@ -137,10 +137,13 @@ export async function renderInventory(container, routeParts = []) {
           <form id="stock-tx-form" style="display:flex; flex-direction:column; gap:12px;">
             <div class="input-group" style="margin-bottom:0;">
               <label>Select Item <span class="muted-text" style="font-size:10px;">(optional)</span></label>
-              <select id="tx-item-select" class="form-control-noicon">
-                <option value="">— Select —</option>
-                ${items.map(item => `<option value="${item.id}">${item.code} - ${item.name} (${item.currentStock} ${item.unit})</option>`).join('')}
-              </select>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <input type="text" id="tx-item-search" class="form-control-noicon" style="padding:6px 12px; font-size:12px;" placeholder="🔍 Type to search items...">
+                <select id="tx-item-select" class="form-control-noicon">
+                  <option value="">— Select —</option>
+                  ${items.map(item => `<option value="${item.id}">${item.code} - ${item.name} (${item.currentStock} ${item.unit})</option>`).join('')}
+                </select>
+              </div>
             </div>
 
             <div class="input-group" style="margin-bottom:0;">
@@ -342,6 +345,23 @@ function bindInventoryEvents(container) {
   // Register New Item button
   document.getElementById('add-item-btn')?.addEventListener('click', () => {
     openRegisterItemModal(container);
+  });
+
+  // Live search filter for transaction item select dropdown
+  document.getElementById('tx-item-search')?.addEventListener('input', async (e) => {
+    const q = e.target.value.toLowerCase();
+    const select = document.getElementById('tx-item-select');
+    if (!select) return;
+
+    const items = await db.getAll('inventory');
+    const filtered = items.filter(item => 
+      `${item.code} - ${item.name}`.toLowerCase().includes(q)
+    );
+
+    select.innerHTML = `
+      <option value="">— Select —</option>
+      ${filtered.map(item => `<option value="${item.id}">${item.code} - ${item.name} (${item.currentStock} ${item.unit})</option>`).join('')}
+    `;
   });
 
   // Stock Transaction form
