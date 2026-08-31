@@ -23,9 +23,9 @@ export function getSupabaseClient() {
     }
   }
 
-  // Fallback to default or empty if not set
-  url = url || 'https://oajpasqndvwahswgorzg.supabase.co';
-  key = key || 'sb_publishable_bOHbvYedy_frmMTcOYit2Q_jej1_hGv';
+  // Fallback to environment variables, then CDN sandbox defaults
+  url = url || import.meta.env.VITE_SUPABASE_URL || 'https://oajpasqndvwahswgorzg.supabase.co';
+  key = key || import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_bOHbvYedy_frmMTcOYit2Q_jej1_hGv';
 
   return createClient(url, key);
 }

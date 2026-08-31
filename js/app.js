@@ -8,6 +8,7 @@ import { db } from './db.js';
 
 // Module Import Registrations
 import { renderDashboard } from './modules/dashboard.js';
+import { renderQuotations } from './modules/quotations.js';
 import { renderProjects } from './modules/projects.js';
 import { renderHR } from './modules/hr.js';
 import { renderInventory } from './modules/inventory.js';
@@ -59,37 +60,46 @@ class AppCoordinator {
     }
 
     // Login form handler
-    loginForm.addEventListener('submit', (e) => {
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const usernameInput = document.getElementById('login-username');
+      const passwordInput = document.getElementById('login-password');
       const username = usernameInput.value.trim();
-      if (!username) return;
+      const password = passwordInput.value;
 
-      // Generate initials from username
-      const parts = username.split(/\s+/);
-      const initials = parts.length >= 2
-        ? (parts[0][0] + parts[1][0]).toUpperCase()
-        : username.slice(0, 2).toUpperCase();
+      if (!username || !password) return;
 
-      this.currentUser = { username, role: 'System Admin', initials };
-      sessionStorage.setItem('aeroglass_user', JSON.stringify(this.currentUser));
+      const submitBtn = loginForm.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verifying operator profile...';
 
-      // Animated transition: login out → app in
-      loginContainer.classList.add('fade-out');
-      setTimeout(() => {
-        loginContainer.classList.add('hidden');
-        loginContainer.classList.remove('fade-out');
-        appContainer.classList.remove('hidden');
-        appContainer.classList.add('fade-in');
-        this.updateProfileWidgets();
-        this.handleRoute();
-        lucide.createIcons();
-      }, 500);
+      try {
+        const verifiedUser = await auth.login(username, password);
+        this.currentUser = verifiedUser;
+        sessionStorage.setItem('aeroglass_user', JSON.stringify(this.currentUser));
+
+        // Animated transition: login out → app in
+        loginContainer.classList.add('fade-out');
+        setTimeout(() => {
+          loginContainer.classList.add('hidden');
+          loginContainer.classList.remove('fade-out');
+          appContainer.classList.remove('hidden');
+          appContainer.classList.add('fade-in');
+          this.updateProfileWidgets();
+          this.handleRoute();
+          lucide.createIcons();
+        }, 500);
+      } catch (err) {
+        this.showToast('Login Denied', err.message, 'danger');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Initialize Workspace Session';
+      }
     });
 
     // Logout handler
     logoutBtn.addEventListener('click', () => {
-      sessionStorage.removeItem('aeroglass_user');
+      auth.logout();
       this.currentUser = null;
       window.location.hash = '';
       window.location.reload();
@@ -104,6 +114,17 @@ class AppCoordinator {
     document.getElementById('profile-name').textContent = this.currentUser.username;
     document.getElementById('profile-role').textContent = this.currentUser.role;
     document.getElementById('user-avatar').textContent = this.currentUser.initials || 'AD';
+
+    // Hide/Show sidebar links dynamically based on user role
+    const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
+    navItems.forEach(item => {
+      const view = item.getAttribute('data-view');
+      if (auth.canAccessView(view)) {
+        item.style.display = 'flex';
+      } else {
+        item.style.display = 'none';
+      }
+    });
   }
 
   /**
@@ -190,8 +211,23 @@ class AppCoordinator {
     // Load active layout styling to sidebar
     this.updateSidebarActive(mainView);
 
-    // Mount Module View
     const workspaceView = document.getElementById('view-content');
+
+    // Enforce role-based access check
+    if (!auth.canAccessView(mainView)) {
+      workspaceView.innerHTML = `
+        <div class="glass-card text-center" style="margin: 40px auto; max-width: 500px; padding: 40px;">
+          <i data-lucide="shield-alert" class="warning-text" style="width: 48px; height: 48px; margin-bottom: 16px; display:inline-block;"></i>
+          <h3 class="warning-text" style="font-family:var(--font-heading); font-weight:700;">Access Denied</h3>
+          <p class="muted-text" style="margin-top: 8px; font-size:13px;">Your Operator Profile (${this.currentUser.role}) does not have permission to access the <strong>${mainView}</strong> module.</p>
+          <button onclick="window.location.hash='#dashboard'" class="btn btn-primary" style="margin-top: 20px; padding: 8px 16px;">Back to Dashboard</button>
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
+    // Mount Module View
     workspaceView.innerHTML = `
       <div class="text-center muted-text" style="padding: 100px 0;">
         <i data-lucide="loader" class="spinning" style="width: 48px; height: 48px; margin-bottom: 16px;"></i>
@@ -210,6 +246,10 @@ class AppCoordinator {
           titleEl.textContent = 'Operational Dashboard';
           await renderDashboard(workspaceView);
           break;
+        case 'quotations':
+          titleEl.textContent = 'Quotation & Invoice Studio';
+          await renderQuotations(workspaceView, routeParts);
+          break;
         case 'projects':
           titleEl.textContent = 'Projects & Kanban';
           await renderProjects(workspaceView, routeParts);
@@ -223,11 +263,11 @@ class AppCoordinator {
           await renderInventory(workspaceView, routeParts);
           break;
         case 'gatepass':
-          titleEl.textContent = 'Gate Pass Manager';
+          titleEl.textContent = 'Gate Pass-PI Manager';
           await renderGatePass(workspaceView, routeParts);
           break;
         case 'tools':
-          titleEl.textContent = 'Tools Tracking Manager';
+          titleEl.textContent = 'Order Tracking Manager';
           await renderTools(workspaceView);
           break;
         case 'users':
@@ -341,9 +381,40 @@ class AppCoordinator {
           break;
       }
 
+      // Check local folder visibility & permission
+      const folderItem = document.getElementById('sync-item-folder');
+      const folderStatusText = document.getElementById('sync-status-folder')?.querySelector('.db-sync-status-text');
+      const folderDot = document.getElementById('sync-status-folder')?.querySelector('.db-sync-dot');
+      
+      if (db.localDirHandle || db.localDirPath) {
+        if (folderItem) folderItem.style.display = 'flex';
+        db.verifyPermission(true).then(isAuthorized => {
+          if (folderStatusText) folderStatusText.textContent = isAuthorized ? 'Authorized' : 'Needs Auth';
+          if (folderDot) {
+            folderDot.className = `db-sync-dot ${isAuthorized ? 'online' : 'warning'}`;
+          }
+        });
+      } else {
+        if (folderItem) folderItem.style.display = 'none';
+      }
+
       // Refresh the triple-database sidebar status dots
       sync.updateSyncWidget();
     });
+
+    // Bind local folder sync row click
+    const folderItem = document.getElementById('sync-item-folder');
+    if (folderItem) {
+      folderItem.addEventListener('click', async () => {
+        const success = await db.requestPermission(true);
+        if (success) {
+          this.showToast('Folder Authorized', 'Granted read/write permissions to the local folder database.', 'success');
+          this.initSyncStatus();
+        } else {
+          this.showToast('Authorization Failed', 'Could not obtain local folder access.', 'danger');
+        }
+      });
+    }
 
     // Initial widget paint on load
     sync.updateSyncWidget();
@@ -408,6 +479,11 @@ class AppCoordinator {
    * @param {string} customMaxWidth optional max width override (e.g. '800px')
    */
   openModal(title, content, customMaxWidth = '650px') {
+    if (this._closeModalTimer) {
+      clearTimeout(this._closeModalTimer);
+      this._closeModalTimer = null;
+    }
+
     this.modalTitle.textContent = title;
     this.modalContainer.style.maxWidth = customMaxWidth;
 
@@ -430,13 +506,104 @@ class AppCoordinator {
   closeModal() {
     this.modalOverlay.classList.remove('show');
     this.modalOverlay.classList.remove('big-screen-mode');
+
+    if (this._closeModalTimer) {
+      clearTimeout(this._closeModalTimer);
+    }
+
     // Re-hide after CSS transition completes (300ms)
-    setTimeout(() => {
+    this._closeModalTimer = setTimeout(() => {
       this.modalOverlay.classList.add('hidden');
       this.modalOverlay.classList.remove('big-screen-mode'); // Double safeguard
       this.modalBody.innerHTML = '';
       this.modalContainer.style.maxWidth = '650px';
+      this._closeModalTimer = null;
     }, 320);
+  }
+
+  /**
+   * Visual conflict resolution modal
+   * Renders side-by-side local and cloud changes for the user to pick.
+   * Returns a Promise that resolves to either the merged record, or null (revert to cloud).
+   */
+  async showConflictResolver(store, localRecord, cloudRecord) {
+    return new Promise((resolve) => {
+      // Find keys with conflicting values
+      const ignoreKeys = ['updatedAt', 'syncDate', 'id', 'username'];
+      const allKeys = Array.from(new Set([...Object.keys(localRecord), ...Object.keys(cloudRecord)]));
+      const conflicts = allKeys.filter(k => !ignoreKeys.includes(k) && localRecord[k] !== cloudRecord[k]);
+
+      // If no conflict keys, auto resolve to local
+      if (conflicts.length === 0) {
+        resolve(localRecord);
+        return;
+      }
+
+      let contentHtml = `
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <p class="muted-text" style="font-size:12px;">A sync collision occurred for database record <code>${localRecord.id || localRecord.username}</code> in store <strong>${store}</strong>. Select the version to preserve.</p>
+          
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; max-height:280px; overflow-y:auto; padding:4px;">
+            <!-- Local Changes Card -->
+            <div class="glass-card" style="padding:12px; border-color:var(--warning); display:flex; flex-direction:column; gap:8px;">
+              <h4 style="font-size:13px; font-weight:700; color:var(--warning-color); display:flex; align-items:center; gap:6px;">
+                <i data-lucide="smartphone" style="width:14px; height:14px;"></i>
+                <span>Local Operator Changes</span>
+              </h4>
+              <div style="font-size:11px; display:flex; flex-direction:column; gap:6px; color:var(--text-secondary);">
+                ${conflicts.map(k => `
+                  <div>
+                    <strong>${k}:</strong> 
+                    <span class="warning-text">${typeof localRecord[k] === 'object' ? JSON.stringify(localRecord[k]) : localRecord[k]}</span>
+                  </div>
+                `).join('')}
+              </div>
+              <button id="conflict-keep-local" class="btn btn-primary btn-block" style="margin-top:auto; font-size:11px; padding:6px;">Use Local Changes</button>
+            </div>
+            
+            <!-- Cloud Changes Card -->
+            <div class="glass-card" style="padding:12px; border-color:var(--primary-color); display:flex; flex-direction:column; gap:8px;">
+              <h4 style="font-size:13px; font-weight:700; color:var(--primary-color); display:flex; align-items:center; gap:6px;">
+                <i data-lucide="cloud" style="width:14px; height:14px;"></i>
+                <span>Cloud Server State</span>
+              </h4>
+              <div style="font-size:11px; display:flex; flex-direction:column; gap:6px; color:var(--text-secondary);">
+                ${conflicts.map(k => `
+                  <div>
+                    <strong>${k}:</strong> 
+                    <span class="success-text">${typeof cloudRecord[k] === 'object' ? JSON.stringify(cloudRecord[k]) : cloudRecord[k]}</span>
+                  </div>
+                `).join('')}
+              </div>
+              <button id="conflict-keep-cloud" class="btn btn-secondary btn-block" style="margin-top:auto; font-size:11px; padding:6px;">Use Cloud State</button>
+            </div>
+          </div>
+          
+          <button id="conflict-keep-merge" class="btn btn-accent btn-block" style="padding:10px;">
+            <i data-lucide="merge"></i>
+            <span>Auto-Merge (Non-Overlapping Fields)</span>
+          </button>
+        </div>
+      `;
+
+      this.openModal('⚠️ Database Sync Conflict', contentHtml, '620px');
+
+      document.getElementById('conflict-keep-local').addEventListener('click', () => {
+        this.closeModal();
+        resolve(localRecord);
+      });
+
+      document.getElementById('conflict-keep-cloud').addEventListener('click', () => {
+        this.closeModal();
+        resolve(null); // null means "revert to cloud"
+      });
+
+      document.getElementById('conflict-keep-merge').addEventListener('click', () => {
+        this.closeModal();
+        const merged = { ...cloudRecord, ...localRecord, updatedAt: new Date().toISOString() };
+        resolve(merged);
+      });
+    });
   }
 }
 

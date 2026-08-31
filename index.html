@@ -41,7 +41,17 @@
           <input 
             type="text" 
             id="login-username"
-            placeholder="Enter workspace identity..." 
+            placeholder="Enter username or email..." 
+            class="form-control-noicon"
+            required
+          />
+        </div>
+        <div class="input-group" style="margin-bottom:0;">
+          <label style="text-transform: uppercase; font-size:11px; font-weight:700;">Security Password</label>
+          <input 
+            type="password" 
+            id="login-password"
+            placeholder="Enter password..." 
             class="form-control-noicon"
             required
           />
@@ -51,7 +61,7 @@
         </button>
       </form>
       <div style="margin-top: 24px; text-align: center; font-size: 11px;" class="muted-text">
-        Showcase Sandbox Environment — No security credentials required to evaluate.
+        Secure Workspace Environment — Local IndexedDB / Supabase verified credentials.
       </div>
     </div>
   </div>
@@ -101,6 +111,13 @@
               <span class="db-sync-status-text">Offline</span>
             </span>
           </div>
+          <div class="db-sync-item" id="sync-item-folder" style="display:none; cursor:pointer;" title="Click to authorize folder access">
+            <span class="db-sync-item-label" style="text-decoration:underline;">Local Folder</span>
+            <span class="db-sync-item-status" id="sync-status-folder">
+              <span class="db-sync-dot warning"></span>
+              <span class="db-sync-status-text">Needs Auth</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -108,6 +125,10 @@
         <a href="#dashboard" class="nav-item active" data-view="dashboard">
           <i data-lucide="layout-dashboard"></i>
           <span>Dashboard</span>
+        </a>
+        <a href="#quotations" class="nav-item" data-view="quotations">
+          <i data-lucide="file-spreadsheet"></i>
+          <span>Quotations</span>
         </a>
         <a href="#projects" class="nav-item" data-view="projects">
           <i data-lucide="kanban-square"></i>
@@ -123,11 +144,11 @@
         </a>
         <a href="#gatepass" class="nav-item" data-view="gatepass">
           <i data-lucide="file-check-2"></i>
-          <span>Gate Pass</span>
+          <span>Gate Pass-PI</span>
         </a>
         <a href="#tools" class="nav-item" data-view="tools">
-          <i data-lucide="wrench"></i>
-          <span>Tools Tracking</span>
+          <i data-lucide="clipboard-list"></i>
+          <span>Order Tracking</span>
         </a>
         <a href="#users" class="nav-item" data-view="users">
           <i data-lucide="shield-alert"></i>

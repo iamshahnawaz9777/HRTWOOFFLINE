@@ -134,6 +134,12 @@ async function populatePassList() {
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:3px;">
           ${gp.vehicle?.driverName ? `🚛 ${gp.vehicle.driverName}` : '—'} · ${gp.date || ''}${totalAmt}
         </div>
+        ${gp.projectName ? `
+          <div style="font-size:10px; color:var(--primary-color); margin-bottom:3px; display:flex; align-items:center; gap:4px;">
+            <i data-lucide="kanban-square" style="width:11px; height:11px;"></i>
+            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${gp.projectName}</span>
+          </div>
+        ` : ''}
         ${itemNames ? `<div style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           📦 ${itemNames}${extraItems}
         </div>` : ''}
@@ -224,7 +230,7 @@ async function renderPassDetails() {
       </div>
 
       <!-- Info Grid -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px;">
         <div style="background:rgba(0,0,0,0.12); border:1px solid var(--glass-border); padding:14px; border-radius:10px;">
           <h4 style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.5px;">👤 Recipient</h4>
           <div style="display:flex; flex-direction:column; gap:5px; font-size:13px;">
@@ -239,6 +245,20 @@ async function renderPassDetails() {
             <span><strong>Vehicle No:</strong> <code>${gp.vehicle?.vehicleNo || '—'}</code></span>
             <span><strong>Driver:</strong> ${gp.vehicle?.driverName || '—'}</span>
             <span><strong>Type:</strong> ${gp.vehicle?.vehicleType || '—'}</span>
+          </div>
+        </div>
+        <div style="background:rgba(0,0,0,0.12); border:1px solid var(--glass-border); padding:14px; border-radius:10px;">
+          <h4 style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.5px;">🏗️ Connected Project</h4>
+          <div style="display:flex; flex-direction:column; gap:5px; font-size:13px;">
+            ${gp.projectName ? `
+              <strong style="color:var(--primary-color);">${gp.projectName}</strong>
+              <a href="#projects" style="font-size:11px; color:var(--text-secondary); text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-top:2px;">
+                <i data-lucide="external-link" style="width:11px; height:11px;"></i> Open in Projects
+              </a>
+            ` : `
+              <span class="muted-text">General Dispatch</span>
+              <span style="font-size:11px; color:var(--text-muted);">No specific project linked</span>
+            `}
           </div>
         </div>
       </div>
@@ -429,19 +449,32 @@ function bindGatePassListEvents(container) {
 /* ==========================================================================
    Create Gate Pass — Modal Builder
    ========================================================================== */
-async function openCreateGatePassModal(container) {
+export async function openCreateGatePassModal(container, defaultProjectId = null) {
   tempGatePassItems = [];
   const inventoryItems = await db.getAll('inventory');
+  const projects = await db.getAll('projects');
 
   const formHTML = `
     <div style="display:flex; flex-direction:column; gap:20px;">
 
-      <!-- Section 1: Person -->
+      <!-- Section 1: Project & Person -->
       <div>
         <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
-          1. Person Responsible <span style="font-weight:400; font-style:italic;">(all optional)</span>
+          1. Destination & Person Responsible
         </h4>
         <div class="gp-form-sections">
+          <!-- Project Selection -->
+          <div class="input-group" style="margin-bottom:0; grid-column: span 2;">
+            <label style="font-weight:700; color:var(--text-primary); display:flex; justify-content:space-between; align-items:center;">
+              <span>Connected Project</span>
+              <span class="muted-text" style="font-size:11px; font-weight:400;">Links dispatch directly into Project & Tasks</span>
+            </label>
+            <select id="gp-new-project-id" class="form-control-noicon" style="border-color:var(--primary-color);">
+              <option value="">— General Dispatch / No Project —</option>
+              ${projects.map(p => `<option value="${p.id}" ${p.id === defaultProjectId ? 'selected' : ''}>🏗️ ${p.name} (${p.status})</option>`).join('')}
+            </select>
+          </div>
+
           <div class="input-group" style="margin-bottom:0;">
             <label>Recipient Name</label>
             <input type="text" id="gp-new-name" class="form-control-noicon" placeholder="e.g. Jack Vance">
@@ -456,7 +489,7 @@ async function openCreateGatePassModal(container) {
           </div>
           <div class="input-group" style="margin-bottom:0;">
             <label>Remarks</label>
-            <input type="text" id="gp-new-person-remarks" class="form-control-noicon" placeholder="Any notes...">
+            <input type="text" id="gp-new-person-remarks" class="form-control-noicon" placeholder="Any delivery notes...">
           </div>
         </div>
       </div>
@@ -650,7 +683,7 @@ async function openCreateGatePassModal(container) {
   app.openModal('New Gate Pass', formHTML, '800px');
 
   // Wait for DOM injection then bind all modal events
-  bindCreateModalEvents(inventoryItems, container);
+  bindCreateModalEvents(inventoryItems, container, projects);
 }
 
 /* ==========================================================================
@@ -659,16 +692,26 @@ async function openCreateGatePassModal(container) {
 async function openEditGatePassModal(container, gp) {
   tempGatePassItems = JSON.parse(JSON.stringify(gp.items || []));
   const inventoryItems = await db.getAll('inventory');
+  const projects = await db.getAll('projects');
 
   const formHTML = `
     <div style="display:flex; flex-direction:column; gap:20px;">
 
-      <!-- Section 1: Person -->
+      <!-- Section 1: Project & Person -->
       <div>
         <h4 style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid var(--glass-border); padding-bottom:6px;">
-          1. Person Responsible
+          1. Destination & Person Responsible
         </h4>
         <div class="gp-form-sections">
+          <!-- Project Selection -->
+          <div class="input-group" style="margin-bottom:0; grid-column: span 2;">
+            <label style="font-weight:700; color:var(--text-primary);">Connected Project</label>
+            <select id="gp-edit-project-id" class="form-control-noicon" style="border-color:var(--primary-color);">
+              <option value="">— General Dispatch / No Project —</option>
+              ${projects.map(p => `<option value="${p.id}" ${p.id === gp.projectId ? 'selected' : ''}>🏗️ ${p.name} (${p.status})</option>`).join('')}
+            </select>
+          </div>
+
           <div class="input-group" style="margin-bottom:0;">
             <label>Recipient Name</label>
             <input type="text" id="gp-edit-name" class="form-control-noicon" value="${gp.person?.name || ''}">
@@ -789,6 +832,12 @@ async function openEditGatePassModal(container, gp) {
   }
 
   document.getElementById('gp-update-btn').addEventListener('click', async () => {
+    const editProjId = document.getElementById('gp-edit-project-id')?.value || null;
+    const editProj = projects.find(p => p.id === editProjId);
+
+    gp.projectId = editProjId;
+    gp.projectName = editProj ? editProj.name : '';
+
     gp.person = {
       name: document.getElementById('gp-edit-name').value.trim(),
       contact: document.getElementById('gp-edit-contact').value.trim(),
@@ -926,7 +975,7 @@ function updateQueuedTable() {
 }
 
 /* Bind all events inside the Create Gate Pass modal */
-function bindCreateModalEvents(inventoryItems, container) {
+function bindCreateModalEvents(inventoryItems, container, projects = []) {
   // --- Tab switching ---
   const storeBtn = document.getElementById('gp-tab-store-btn');
   const manualBtn = document.getElementById('gp-tab-manual-btn');
@@ -980,43 +1029,38 @@ function bindCreateModalEvents(inventoryItems, container) {
       return;
     }
 
-    // Stock check
-    const storeItem = inventoryItems.find(i => i.code === code);
-    if (storeItem && storeItem.currentStock < qty) {
-      app.showToast('Exceeded Stock', `Only ${storeItem.currentStock} ${storeItem.unit} available in store.`, 'danger');
-      return;
+    // Check store inventory available stock
+    const invItem = inventoryItems.find(i => i.code === code);
+    const existingQueued = tempGatePassItems.filter(i => i.code === code).reduce((s, i) => s + i.quantity, 0);
+    if (invItem && (existingQueued + qty) > invItem.currentStock) {
+      app.showToast('Low Stock Alert', `Requested ${existingQueued + qty} but only ${invItem.currentStock} in store!`, 'warning');
     }
 
-    // Merge if exists
-    const existing = tempGatePassItems.find(t => t.code === code && t.source === 'store');
-    if (existing) {
-      existing.quantity += qty;
-    } else {
-      tempGatePassItems.push({ code, name, quantity: qty, price, description: desc, source: 'store' });
-    }
+    tempGatePassItems.push({ code, name, quantity: qty, price, description: desc, source: 'store' });
 
-    // Reset store form
+    // Reset store selection
     document.getElementById('gp-store-selected-code').value = '';
     document.getElementById('gp-store-selected-name').value = '';
     document.getElementById('gp-store-selected-display').value = '';
     document.getElementById('gp-store-qty').value = 1;
     document.getElementById('gp-store-price').value = '';
     document.getElementById('gp-store-desc').value = '';
+    document.querySelectorAll('.gp-store-item-row').forEach(r => r.style.background = 'transparent');
 
     updateQueuedTable();
-    app.showToast('Item Added', `${name} × ${qty} added to gate pass.`, 'success');
+    app.showToast('Item Added', `${name} × ${qty} added to pass.`, 'success');
   });
 
   // --- Manual Add button ---
   document.getElementById('gp-manual-add-btn')?.addEventListener('click', () => {
-    const code = document.getElementById('gp-manual-code')?.value?.trim() || `MNL-${Date.now()}`;
+    const code = document.getElementById('gp-manual-code')?.value?.trim() || 'MANUAL';
     const name = document.getElementById('gp-manual-name')?.value?.trim();
     const qty = parseInt(document.getElementById('gp-manual-qty')?.value || '1');
     const price = parseFloat(document.getElementById('gp-manual-price')?.value || '0') || 0;
     const desc = document.getElementById('gp-manual-desc')?.value?.trim() || '';
 
     if (!name) {
-      app.showToast('Item Name Required', 'Please enter the item name for manual entry.', 'warning');
+      app.showToast('Item Name Required', 'Please enter a name for the manual item.', 'warning');
       return;
     }
     if (qty < 1) {
@@ -1039,6 +1083,10 @@ function bindCreateModalEvents(inventoryItems, container) {
 
   // --- Submit Gate Pass ---
   document.getElementById('gp-submit-btn')?.addEventListener('click', async () => {
+    const projectId = document.getElementById('gp-new-project-id')?.value || null;
+    const selectedProj = projects.find(p => p.id === projectId);
+    const projectName = selectedProj ? selectedProj.name : '';
+
     const name = document.getElementById('gp-new-name')?.value?.trim() || '';
     const designation = document.getElementById('gp-new-designation')?.value?.trim() || '';
     const contact = document.getElementById('gp-new-contact')?.value?.trim() || '';
@@ -1067,6 +1115,8 @@ function bindCreateModalEvents(inventoryItems, container) {
       id,
       gatePassNo,
       date: passDate,
+      projectId: projectId || null,
+      projectName: projectName || '',
       status: 'Pending',
       person: { name, designation, contact },
       vehicle: { vehicleNo, driverName, vehicleType },
@@ -1079,8 +1129,47 @@ function bindCreateModalEvents(inventoryItems, container) {
     await db.put('gatepasses', newPass);
     await sync.queueOperation('gatepasses', 'insert', newPass);
 
+    // Auto-create task on the project's task list if connected to a project
+    if (projectId) {
+      try {
+        const itemCount = tempGatePassItems.length;
+        const subtasksList = tempGatePassItems.map(item => ({
+          text: `${item.name} (${item.code || 'N/A'}) × ${item.quantity} [${item.source === 'store' ? 'Store' : 'Manual'}]`,
+          completed: false
+        }));
+
+        const taskItem = {
+          id: `task-gp-${Date.now()}`,
+          projectId: projectId,
+          name: `📦 Material Dispatch: ${gatePassNo}`,
+          description: `Gate Pass ${gatePassNo} issued on ${passDate} for ${itemCount} items to ${name || 'Site'}. Driver: ${driverName || 'N/A'}, Vehicle: ${vehicleNo || 'N/A'}. Total value: ₹${totalAmount.toLocaleString('en-IN')}.`,
+          assignees: [name || driverName || 'storekeeper'],
+          deadline: passDate,
+          priority: 'medium',
+          status: 'in-progress',
+          subtasks: subtasksList,
+          activityLog: [
+            {
+              time: new Date().toISOString(),
+              user: auth.getCurrentUser()?.username || 'System',
+              action: `Created material dispatch task from Gate Pass ${gatePassNo}`
+            }
+          ]
+        };
+
+        await db.put('tasks', taskItem);
+        await sync.queueOperation('tasks', 'insert', taskItem);
+      } catch (err) {
+        console.warn('Could not auto-create project task for gate pass:', err);
+      }
+    }
+
     app.closeModal();
-    app.showToast('Gate Pass Created', `${gatePassNo} created successfully${tempGatePassItems.length > 0 ? ` with ${tempGatePassItems.length} items` : ''}.`, 'success');
+    app.showToast(
+      'Gate Pass Created', 
+      `${gatePassNo} created successfully${projectName ? ` for ${projectName}` : ''}${tempGatePassItems.length > 0 ? ` with ${tempGatePassItems.length} items` : ''}.`, 
+      'success'
+    );
 
     selectedGatePassId = id;
     await renderGatePass(container);
@@ -1188,6 +1277,14 @@ function bindDetailsActions(gp) {
               <strong>Vehicle No:</strong> ${gp.vehicle?.vehicleNo || '—'}<br>
               <strong>Driver:</strong> ${gp.vehicle?.driverName || '—'}<br>
               <strong>Type:</strong> ${gp.vehicle?.vehicleType || '—'}
+            </div>
+          </div>
+          <div>
+            <h4 style="margin:0 0 8px; font-size:12px; text-transform:uppercase; color:#777; border-bottom:1.5px solid #000; padding-bottom:4px;">PROJECT / SITE</h4>
+            <div style="font-size:12px; line-height:1.8;">
+              <strong>Project:</strong> ${gp.projectName || 'General Dispatch'}<br>
+              <strong>Reference:</strong> ${gp.projectId || 'Site Direct'}<br>
+              <strong>Status:</strong> Authorized Outward
             </div>
           </div>
         </div>

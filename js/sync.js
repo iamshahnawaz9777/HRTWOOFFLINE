@@ -49,10 +49,10 @@ class SyncService {
   getConfig() {
     const raw = localStorage.getItem(this.configKey);
     if (!raw) {
-      // Pre-configured default user Supabase credentials for seamless out-of-the-box syncing
+      // Fallback to environment configuration or default sandbox credentials
       return {
-        url: 'https://oajpasqndvwahswgorzg.supabase.co',
-        key: 'sb_publishable_bOHbvYedy_frmMTcOYit2Q_jej1_hGv'
+        url: import.meta.env.VITE_SUPABASE_URL || 'https://oajpasqndvwahswgorzg.supabase.co',
+        key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_bOHbvYedy_frmMTcOYit2Q_jej1_hGv'
       };
     }
     try {
@@ -80,10 +80,10 @@ class SyncService {
   getTursoConfig() {
     const raw = localStorage.getItem(this.tursoConfigKey);
     if (!raw) {
-      // Pre-configured default Turso credentials for seamless triple-sync pipeline
+      // Fallback to environment configuration or default sandbox credentials
       return {
-        url: 'https://hronelocal-iamshahnawaz9777.turso.io',
-        authToken: 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJyaVM3Smx3Z0VmR1NUaGFDMTk5U3VnIiwib3JnX2lkIjoxMDAwMTczNzk2fQ.J8Iko9R4mkKOVPG-RLfzZW8HQjkoc5vmxjLWUeN3L5LpdLotKuZ501_NHHtkW2bZ04xJCW9ePEckdJv1Y91jCA'
+        url: import.meta.env.VITE_TURSO_DATABASE_URL || 'https://hronelocal-iamshahnawaz9777.turso.io',
+        authToken: import.meta.env.VITE_TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJyaVM3Smx3Z0VmR1NUaGFDMTk5U3VnIiwib3JnX2lkIjoxMDAwMTczNzk2fQ.J8Iko9R4mkKOVPG-RLfzZW8HQjkoc5vmxjLWUeN3L5LpdLotKuZ501_NHHtkW2bZ04xJCW9ePEckdJv1Y91jCA'
       };
     }
     try {
@@ -391,6 +391,53 @@ class SyncService {
 
           let method = 'POST';
           let body = JSON.stringify(item.data);
+
+          // Conflict Detection
+          if (item.action !== 'delete' && config.url && config.url.includes('supabase.co')) {
+            const keyName = item.store === 'users' ? 'username' : 'id';
+            const keyValue = item.store === 'users' ? item.data.username : item.data.id;
+            const checkUrl = `${config.url}/rest/v1/${item.store}?${keyName}=eq.${encodeURIComponent(keyValue)}`;
+            
+            try {
+              const checkRes = await fetch(checkUrl, {
+                method: 'GET',
+                headers: {
+                  'apikey': config.key,
+                  'Authorization': `Bearer ${config.key}`
+                }
+              });
+
+              if (checkRes.ok) {
+                const cloudRecords = await checkRes.json();
+                if (cloudRecords && cloudRecords.length > 0) {
+                  const cloudRecord = cloudRecords[0];
+                  
+                  // Compare updatedAt timestamps to detect a collision
+                  if (cloudRecord.updatedAt && item.data.updatedAt && cloudRecord.updatedAt !== item.data.updatedAt) {
+                    console.log(`Conflict detected in store ${item.store} for key ${keyValue}. Opening resolver...`);
+                    
+                    if (window.app && typeof window.app.showConflictResolver === 'function') {
+                      const resolution = await window.app.showConflictResolver(item.store, item.data, cloudRecord);
+                      
+                      if (resolution) {
+                        // User chose Local or Merge. Update local DB and write it to the cloud.
+                        item.data = resolution;
+                        await db.putDirectly(item.store, resolution);
+                        body = JSON.stringify(resolution);
+                      } else {
+                        // User chose Cloud. Overwrite local with cloud and delete from sync queue.
+                        await db.putDirectly(item.store, cloudRecord);
+                        await db.delete('syncQueue', item.id);
+                        continue;
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (checkErr) {
+              console.warn('Conflict detection check failed:', checkErr.message);
+            }
+          }
 
           if (item.action === 'delete') {
             method = 'DELETE';

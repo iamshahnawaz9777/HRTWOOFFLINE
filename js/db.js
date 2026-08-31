@@ -352,6 +352,9 @@ class IndexedDBStore {
    * Save (Insert/Update) item in store (with auto-save hook)
    */
   async put(storeName, data) {
+    if (data && typeof data === 'object' && storeName !== 'app_settings' && storeName !== 'syncQueue') {
+      data.updatedAt = new Date().toISOString();
+    }
     const store = await this.getTransaction(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
       const request = store.put(data);
